@@ -1,0 +1,241 @@
+---
+title: ELK stack5.x 安装部署异常错误汇总
+date: 2017-05-05 20:37:00
+tags:
+- ElasticSearch
+- Logstach
+- Kibana
+- 集群
+categories: ELK
+---
+
+记录下- ElasticSearch、Logstash、Kibana安装配置时会出现的问题
+
+<!--more-->
+
+# elasticsearch
+
+## can not run as root
+
+问题1:
+```bash
+uncaught exception in thread [main]
+org.elasticsearch.bootstrap.StartupException: java.lang.RuntimeException: can not run elasticsearch as root
+
+异常原因：不能使用root用户启动，因为之前版本出现过安全漏洞
+解决方案：新建普通用户，赋权限
+```
+
+## seccomp unavailable
+
+问题2：
+```bash
+unable to install syscall filter:
+java.lang.UnsupportedOperationException: seccomp unavailable: requires kernel 3.5+ with CONFIG_SECCOMP and CONFIG_SECCOMP_FILTER compiled in
+        at org.elasticsearch.bootstrap.SystemCallFilter.linuxImpl(SystemCallFilter.java:350) ~[elasticsearch-5.4.0.jar:5.4.0]
+        at org.elasticsearch.bootstrap.SystemCallFilter.init(SystemCallFilter.java:638) ~[elasticsearch-5.4.0.jar:5.4.0]
+        at org.elasticsearch.bootstrap.JNANatives.tryInstallSystemCallFilter(JNANatives.java:215) [elasticsearch-5.4.0.jar:5.4.0]
+        at org.elasticsearch.bootstrap.Natives.tryInstallSystemCallFilter(Natives.java:99) [elasticsearch-5.4.0.jar:5.4.0]
+        at org.elasticsearch.bootstrap.Bootstrap.initializeNatives(Bootstrap.java:111) [elasticsearch-5.4.0.jar:5.4.0]
+        at org.elasticsearch.bootstrap.Bootstrap.setup(Bootstrap.java:204) [elasticsearch-5.4.0.jar:5.4.0]
+        at org.elasticsearch.bootstrap.Bootstrap.init(Bootstrap.java:360) [elasticsearch-5.4.0.jar:5.4.0]
+        at org.elasticsearch.bootstrap.Elasticsearch.init(Elasticsearch.java:123) [elasticsearch-5.4.0.jar:5.4.0]
+        at org.elasticsearch.bootstrap.Elasticsearch.execute(Elasticsearch.java:114) [elasticsearch-5.4.0.jar:5.4.0]
+        at org.elasticsearch.cli.EnvironmentAwareCommand.execute(EnvironmentAwareCommand.java:67) [elasticsearch-5.4.0.jar:5.4.0]
+        at org.elasticsearch.cli.Command.mainWithoutErrorHandling(Command.java:122) [elasticsearch-5.4.0.jar:5.4.0]
+        at org.elasticsearch.cli.Command.main(Command.java:88) [elasticsearch-5.4.0.jar:5.4.0]
+        at org.elasticsearch.bootstrap.Elasticsearch.main(Elasticsearch.java:91) [elasticsearch-5.4.0.jar:5.4.0]
+        at org.elasticsearch.bootstrap.Elasticsearch.main(Elasticsearch.java:84) [elasticsearch-5.4.0.jar:5.4.0]
+
+异常原因：报了一大串错误，其实只是一个警告，原因是Linux版本过低造成的，笔者之前CentOS6.8报过该错。
+解决方案：
+1、重新安装新版本的Linux系统，笔者换成CentOS7.2就不再显示警告
+2、警告不影响使用，可以忽略
+```
+
+## memory is not locked
+
+问题3：
+```bash
+ERROR: bootstrap checks failed
+memory locking requested for elasticsearch process but memory is not locked
+
+异常原因：锁定内存失败
+解决方案：
+切换到root用户，编辑limits.conf配置文件， 添加类似如下内容：
+# vim /etc/security/limits.conf
+添加:
+* soft memlock unlimited
+* hard memlock unlimited
+备注：* 代表Linux所有用户名称
+保存、退出、重新登录才可生效
+
+临时取消限制
+# ulimit -l unlimited
+```
+
+## max file too low
+
+问题4：
+```bash
+ERROR: bootstrap checks failed
+max file descriptors [4096] for elasticsearch process is too low, increase to at least [65536]
+
+异常原因：无法创建本地文件问题,用户最大可创建文件数太小
+解决方案：
+切换到root用户，编辑limits.conf配置文件， 添加类似如下内容：
+# vim /etc/security/limits.conf
+
+添加如下内容:
+* soft nofile 65536
+* hard nofile 131072
+备注：* 代表Linux所有用户名称
+
+保存、退出、重新登录才可生效
+```
+
+## threads number too low
+
+问题5：
+```bash
+max number of threads [1024] for user [es] is too low, increase to at least [2048]
+
+异常原因：无法创建本地线程问题,用户最大可创建线程数太小
+解决方案：切换到root用户，进入limits.d目录下，修改20-nproc.conf 配置文件
+# vim /etc/security/limits.d/20-nproc.conf
+找到如下内容：
+* soft nproc 1024
+修改为
+* soft nproc 2048
+```
+
+## max virtual memory too low
+
+问题6：
+```bash
+max virtual memory areas vm.max_map_count [65530] is too low, increase to at least [262144]
+
+异常原因：最大虚拟内存太小
+解决方案：切换到root用户下，修改配置文件sysctl.conf
+# vim /etc/sysctl.conf
+添加：
+vm.max_map_count=655360
+
+执行命令查看：
+sysctl -p
+```
+
+## system call filters failed to install
+
+问题7：
+```bash
+system call filters failed to install; check the logs and fix your configuration or disable system call filters at your own risk
+
+异常原因：因为Centos6不支持SecComp
+SecComp是Linux kernel （自从2.6.23版本之后）所支持的一种简洁的sandboxing机制。它能使一个进程进入到一种“安全”运行模式，该模式下的进程只能调用4种系统调用（system calls），即read(), write(), exit()和sigreturn()，否则进程便会被终止。
+而ES5.2以后的版本默认bootstrap.system_call_filter为true进行检测，所以导致检测失败，失败后直接导致ES不能启动。
+详见 ：https://github.com/elastic/elasticsearch/issues/22899
+System call filter settingeditElasticsearch has attempted to install a system call filter since version 2.1.0. 
+These are enabled by default and could be disabled via bootstrap.seccomp. 
+The naming of this setting is poor since seccomp is specific to Linux but Elasticsearch attempts to install a system call filter on various operating systems. 
+Starting in Elasticsearch 5.2.0, this setting has been renamed to bootstrap.system_call_filter. 
+The previous setting is still support but will be removed in Elasticsearch 6.0.0.
+
+解决方法：在elasticsearch.yml中配置bootstrap.system_call_filter为false，注意要在memory_lock下面添加:
+bootstrap.memory_lock: false
+bootstrap.system_call_filter: false
+```
+
+## unicast pinging again
+
+问题8：
+```bash
+ElasticSearch集群启动找不到主机或路由
+[WARN ][o.e.d.z.ZenDiscovery     ] [node-1] not enough master nodes discovered during pinging (found [[Candidate{node={node-1}{RW_GigQIQXaL95BIGlWpdQ}{sAZDI_FySJWPRYBW3_zFhQ}{192.168.154.201}{192.168.154.201:9300}, clusterStateVersion=-1}]], but needed [2]), pinging again
+[WARN ][o.e.d.z.ZenDiscovery     ] [node-1] not enough master nodes discovered during pinging (found [[Candidate{node={node-1}{RW_GigQIQXaL95BIGlWpdQ}{sAZDI_FySJWPRYBW3_zFhQ}{192.168.154.201}{192.168.154.201:9300}, clusterStateVersion=-1}]], but needed [2]), pinging again
+
+异常原因： 1.ElasticSearch 单播配置有问题  2.防火墙未关闭
+解决方案：
+1.检查ElasticSearch中的配置文件
+# vim  config/elasticsearch.yml
+找到如下配置：
+discovery.zen.ping.unicast.hosts:["192.168.**.**:9300","192.168.**.**:9300"]
+一般情况下，是这里配置有问题，注意书写格式
+
+2.CentOS 7.0默认使用的是firewall作为防火墙
+# systemctl stop firewalld.service
+# systemctl disable firewalld.service
+# firewall-cmd --state
+not running
+
+systemctl stop firewalld.service #停止firewall
+systemctl disable firewalld.service #禁止firewall开机启动
+firewall-cmd --state #查看默认防火墙状态（关闭后显示notrunning，开启后显示running）
+```
+
+## Failed to deserialize
+
+问题9：
+```bash
+org.elasticsearch.transport.RemoteTransportException: Failed to deserialize exception response from stream
+
+异常原因：ElasticSearch节点之间的jdk版本不一致
+解决方案：ElasticSearch集群统一jdk环境
+```
+
+## Unsupported major.minor
+
+问题10：
+```bash
+Unsupported major.minor version 52.0
+
+异常原因：jdk版本问题太低
+解决方案：更换jdk版本，ElasticSearch5.0.0支持jdk1.8.0
+```
+
+
+## install plugin error
+
+问题11：
+```bash
+# bin/elasticsearch-plugin install license
+ERROR: Unknown plugin license
+
+异常原因：ElasticSearch5.0.0以后插件命令已经改变
+解决方案：使用最新命令安装所有插件，x-pack是所有插件的集合
+# bin/elasticsearch-plugin install x-pack
+```
+
+## access denied
+
+问题12：
+```bash
+main ERROR Could not register mbeans java.security.AccessControlException: access denied ("javax.management.MBeanTrustPermission" "register")
+
+异常原因：没有给elsearch用户赋启动elasticsearch的权限
+解决方案：
+chown -R elsearch:devs ElasticSearch-5.4.0/
+```
+
+# Kibana
+
+## permission denied
+
+问题1：
+```bash
+普通用户启动./kibana时出现如下错误:
+fs.js:565
+fs.write = function(fd, buffer, offset, length, position, callback) {
+Error: EACCES, permission denied '/usr/local/kibana-4.3.1-linux-x64/optimize/.babelcache.json'
+    at Error (native)
+    at Object.fs.openSync (fs.js:500:18)
+    at Object.fs.writeFileSync (fs.js:1099:15)
+    at save (/usr/local/kibana-4.3.1-linux-x64/node_modules/babel-core/lib/api/register/cache.js:35:19)
+    at process._tickDomainCallback (node.js:381:11)
+    at Function.Module.runMain (module.js:503:11)
+    at startup (node.js:129:16)
+    at node.js:814:3
+
+异常原因：普通用户没有权限
+解决方法：赋予用户执行权限或者直接切换到root用户来执行启动
+```
