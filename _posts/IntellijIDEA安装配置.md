@@ -11,13 +11,55 @@ categories:
 
 <!--more-->
 
-## 注册码
+## 科学永久使用
 
-[申请注册码](http://www.98key.com/idea)
+### Win版
 
-Mac破解：
+1. 下载破解jar包``JetbrainsCrack-2.10-release-enc.jar``，拷贝到IDEA安装目录的bin路径下；
 
-``command + shift + G`` 输入 ``/private/etc/hosts`` 找到 ``hosts`` 文件，添加 ``0.0.0.0 account.jetbrains.com``，然后获取注册码破解.
+2. 修改bin路径下的``idea.exe.vmoptions``和``idea64.exe.vmoptions``，末尾都添加``-javaagent:D:\IntelliJ IDEA 2017.3.1\bin\JetbrainsCrack-2.10-release-enc.jar``；
+
+3. 重启IDEA，打开注册界面，将如下数据拷贝到``Activation code``后再次重启IDEA；
+
+```json
+{"licenseId":"1337",
+"licenseeName":"stefan",
+"assigneeName":"",
+"assigneeEmail":"",
+"licenseRestriction":"Unlimited license till end of the century.",
+"checkConcurrentUse":false,
+"products":[
+{"code":"II","paidUpTo":"2099-12-31"},
+{"code":"DM","paidUpTo":"2099-12-31"},
+{"code":"AC","paidUpTo":"2099-12-31"},
+{"code":"RS0","paidUpTo":"2099-12-31"},
+{"code":"WS","paidUpTo":"2099-12-31"},
+{"code":"DPN","paidUpTo":"2099-12-31"},
+{"code":"RC","paidUpTo":"2099-12-31"},
+{"code":"PS","paidUpTo":"2099-12-31"},
+{"code":"DC","paidUpTo":"2099-12-31"},
+{"code":"RM","paidUpTo":"2099-12-31"},
+{"code":"CL","paidUpTo":"2099-12-31"},
+{"code":"PC","paidUpTo":"2099-12-31"},
+{"code":"DB","paidUpTo":"2099-12-31"},
+{"code":"GO","paidUpTo":"2099-12-31"},
+{"code":"RD","paidUpTo":"2099-12-31"}
+],
+"hash":"2911276/0",
+"gracePeriodDays":7,
+"autoProlongated":false}
+```
+
+### Mac版
+
+1. 下载破解jar包``JetbrainsCrack-2.10-release-enc.jar``，拷贝到IDEA安装目录的bin路径下``/Applications/IntelliJ IDEA.app/Contents/bin/``；
+
+2. 上述路径中找到``idea.vmoptions``，末尾添加``-javaagent:/Applications/IntelliJ IDEA.app/Contents/bin/JetbrainsCrack-2.10-release-enc.jar``;
+
+3. 在``~/Library/Preferences/IntelliJIdea2018.2/``目录下找到``idea.vmoptions``，末尾添加``-javaagent:/Applications/IntelliJ IDEA.app/Contents/bin/JetbrainsCrack-2.10-release-enc.jar``;
+
+4. 重复上面``Win版``的第3步。
+
 
 ## 与eclipse的区别
 
