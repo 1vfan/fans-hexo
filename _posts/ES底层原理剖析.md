@@ -9,6 +9,16 @@ ElasticSearch 6.3.1 Analysis of the underlying principle.
 
 <!--more-->
 
+## ES特性
+
+ES不支持事务。
+
+ES属于近实时搜索：写入的数据默认1s后才能被搜索到；但是GET请求读取内存中还未持久化到磁盘的translog，通过_id可以实现实时查询（但也不能实现实时的条件查询）。
+
+合理分配副本数：ES文档写入主要是写主分片和同步副本分片，副本数多会影响写入性能；ES读取文档是根据算法随机读取某一个分片，副本数多有利于负载均衡，提高并发读性能。
+
+translog和副本分片保障segment的安全性：写入buffer后立即写translog，写入buffer后1s刷入segment，立即刷入os cache 打开segment清除buffer，同时发送请求同步副本分片，所以当主分片挂了，主副本分片间存在1s的数据丢失可能（translog需要5s刷入磁盘）。
+
 ## Filter
 
 由于Filter不会计算搜索条件相关度分数，也不会根据相关度分数进行排序，且filter内置cache，自动缓存常用的filter bitset数据以提升过滤速度，所以Filter的效率相对较高。
@@ -129,15 +139,34 @@ filter执行特性：ES会先执行filter（ES先检查内存中是否有该filt
 引入索引别名``_alias``，索引别名同时指向现有索引名和新索引名，在应用程序中访问索引别名，以解决重建索引后更改应用代码问题，实现0停机。
 
 
+## Document路由机制
+
+ES使用routing算法管理Document，决定Document存放在哪一个主分片上。
+
+如果是写操作：计算routing结果后，决定本次写操作定位到哪一个主分片上，主分片写成功后，自动同步到对应replica shard上。
+如果是读操作：计算routing结果后，决定本次读操作定位到哪一个主分片或其对应的replica shard上；实现读负载均衡，replica shard数量越多，并发读能力越强。
+
+```bash
+//routing field默认为Document的_id
+primary shard = hash(routing field) % number_of_primary_shards
+
+//自定义routing field
+PUT /index_name/type_name/id?routing=xxx
+```
+
+手工指定routing field在操作海量数据情景中非常有用，自定义的routing field可以将相关联的Document存储在同一个shard中，方便后期进行应用级别的负载均衡并可以提高数据检索的效率。
+如：将商品类型的编号作为routing field，等同于将同一类型的商品document数据，存入同一shard中；在一个shard上查询同一类型的商品效率最高。
+
+
 ## Document写入原理
 
 ES为了实现NRT近实时搜索，结合了内存buffer、系统缓存、磁盘三种存储方式。
 
 在lucene中一个index是分为若干个segment（分段），每个segment都会存放index中的部分数据；ES的底层基于lucene，ES将一个index先分解成若干shard，每个shard中使用若干segment存储具体数据。
 
-1. 客户端发起增删改请求，将请求发送到ES中。
+1. 客户端发起增删改请求，将请求发送到ES中（随机请求一台作为协调节点，根据路由规则判断在主分片的节点上操作）。
 
-2. ES将本次请求中要操作的document写入到buffer中。ES为了保证搜索的近实时NRT，设置默认每秒刷新一次buffer。
+2. ES将本次请求中要操作的document写入到buffer中（然后发送同步数据的请求到副本分片的其他节点）。ES为了保证搜索的近实时NRT，设置默认每秒刷新一次buffer。
 
 ```json
 //通过命令触发buffer刷新
@@ -154,13 +183,13 @@ PUT test_index
 }
 ```
 
-3. ES在将document写入到buffer的同时，将本次操作过程及具体内容写入到磁盘的translog file中，ES会保持一个长IO（提高访问效率）对应该日志文件，保证异常宕机后读取日志恢复数据尽可能不丢失数据。
+3. ES在将document写入到buffer后，将本次操作写入内存中的translog file中（数据库则相反是先写日志后数据写入内存）。
 
 4. ES每秒刷新buffer中的数据保存到index segment中（刚创建时存储在内存中的file文件）。
 
 5. index segment完成数据保存后，会被立刻写入到系统缓存中，index segment在写入系统缓存后立刻被打开（不必等到segment写入磁盘后再打开segment，因为写入磁盘是一个相对较重的IO操作），以为满足近实时NRT的搜索请求，同时buffer中的数据被清空。
 
-6. ES默认每5秒执行一次translog文件的持久化；当持久化时刚好有document写入操作在执行，此次持久化操作会等待写操作彻底完成后才执行；如果允许部分数据丢失，可以通过修改translog的持久化方式为异步操作。
+6. ES默认每5秒执行一次translog文件的持久化（保持长IO提高访问效率）；当持久化时刚好有document写入操作在执行，此次持久化操作会等待写操作彻底完成后才执行；如果允许部分数据丢失，可以通过修改translog的持久化方式为异步操作。
 
 ```json
 PUT test_index
@@ -181,7 +210,7 @@ PUT test_index
 
 1. why
 
-每秒会生成一个segment文件，每30分钟都会将这些segment文件持久化到磁盘中，那么磁盘中的segment文件数量会非常多，每个segment都会占用文件句柄，内存资源，cpu资源；而且每个搜索请求的数据可能在多个segment中，ES会检索所有已打开的segment，所以segment越多会影响搜索的效率。
+每秒会生成一个segment文件，每30分钟都会将这些segment文件持久化到磁盘中，那么磁盘中的segment文件数量会非常多，每个segment都会占用文件句柄，内存资源，cpu资源；而且每个搜索请求的数据可能分布在多个segment中，ES会检索所有已打开的segment，所以segment越多会影响搜索的效率。
 
 2. how
 
