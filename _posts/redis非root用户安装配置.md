@@ -144,15 +144,71 @@ no-appendfsync-on-rewrite no
 ###当AOF文件较上一次重写增长百分比达到100%，且当前AOF文件大小超过64MB，会触发重写（redis会隐式调用BGREWRITEAOF）
 auto-aof-rewrite-percentage 100
 auto-aof-rewrite-min-size 64mb
-
-
+###当重写AOF文件时，以递增方式每生成32MB数据fsync到磁盘文件中，并避免大延迟峰值
+aof-rewrite-incremental-fsync yes
+----------------------------------------------------------------------
+###lua脚本最长执行时间(毫秒)，达到最大允许时间后，脚本仍可执行，但会返回错误提示
+###脚本运行超过设置时间时，如果脚本没有执行过写操作，通过script kill可终止运行；
+###如果已执行写命令但不想等待脚本自然结束只能通过关闭redis服务器终止运行
+###该值设置0或负数，则脚本可无时间限制执行，且没有警告提示
+lua-time-limit 5000
+----------------------------------------------------------------------
+###普通redis实例不能作为集群的一部分，需要启用以下配置，redis实例才能作为集群节点
+# cluster-enabled yes
+###只需配置，由redis集群节点自己创建维护，最好对应各自实例的端口，各节点通过各自该文件获知集群中其他节点
+# cluster-config-file nodes-6379.conf
+###集群节点故障判定超时时间(默认15s)，任何节点在超过该时间后仍与集群中大部分主节点失联，则该节点停止接收任何请求
+###若是主节点故障，则它的从节点将启动故障迁移升级成新的主节点，若不做时间限制，如机房中的网络抖动可能导致频繁的主从切换(数据的重新复制)
+# cluster-node-timeout 15000
+###cluster-node-timeout * cluster-slave-validity-factor（倍乘系数）放大超时时间，若该系数设为0，则从服务器不会做超时时间等待，会立刻尝试升级为主服务器
+# cluster-slave-validity-factor 10
+###如果某个主节点没有从节点，当它故障时(负责的槽丢失)，集群将完全处于不可用状态，但可以设置下面参数为no保证其它节点还可以继续对外提供访问
+# cluster-require-full-coverage yes
+----------------------------------------------------------------------
+###slow log用来记录超过指定执行时间(不包括I/O计算如连接客户端，返回结果等，只是命令执行时间)的命令
+###该参数代表超过多少微秒会被记录，负数代表关闭该功能不记录，0代表所有超时执行都记录
+slowlog-log-slower-than 10000
+###slow log大小，新命令被记录时会移除命令队列中最旧的命令，使用SLOWLOG RESET可以回收被slow log消耗的内存
+slowlog-max-len 128
+----------------------------------------------------------------------
+###0代表关闭延迟监视器
+latency-monitor-threshold 0
+----------------------------------------------------------------------
+###hash 的元素个数超过512个改用标准结构存储；否则使用ziplist（紧凑的字节数组结构）
+hash-max-ziplist-entries 512(hash-max-zipmap-entries for Redis < 2.6)
+###hash 的任意元素的key/value长度超过64改用标准结构存储；否则使用ziplist
+hash-max-ziplist-value 64(hash-max-zipmap-value for Redis < 2.6)
+###list 的元素个数超过512个改用标准结构存储；否则使用ziplist
+list-max-ziplist-entries 512
+###list 的任意元素的key/value长度超过64改用标准结构存储；否则使用ziplist
+list-max-ziplist-value 64
+###quicklist内部默认单个ziplist长度为8字节（-2），超出会新起一个ziplist
+list-max-ziplist-size -2
+###quicklist默认不压缩ziplist（0）；为了支持快速push/pop操作，quicklist的首尾两个ziplist不压缩（设置为1）；首尾第一、第二的ziplist都不压缩（设置2）；以此类推...
+list-compress-depth 0
+###zset 的元素个数超过128个改用标准结构存储；否则使用ziplist
+zset-max-ziplist-entries 128
+###zset 的任意元素的key/value长度超过64改用标准结构存储；否则使用ziplist
+zset-max-ziplist-value 64
+###set 的整数元素个数超过512改用标准结构存储
+set-max-intset-entries 512
+###普通客户端不需要输出缓冲区限制，因为普通客户端不主动请求不会接收到数据
+client-output-buffer-limit normal 0 0 0
+###类同下
+client-output-buffer-limit slave 256mb 64mb 60
+###客户端订阅了一个pub/sub，消费消息的速度赶不上发布者生成消息的速度，当客户端输出缓冲区达到32MB或持续60s达到8MB，客户端会立即断开连接
+client-output-buffer-limit pubsub 32mb 8mb 60
+###redis调用内部函数执行后台任务（如关闭超时客户端连接、清除过期keys等）
+###hz值设置越大，占用CPU越多，执行任务越高效准确；默认10，只有在低延迟要求非常严格的环境才会增加到100
+hz 10
+###yes代表每100毫秒redis会使用1毫秒的CPU时间对hash表进行rehash，以尽可能快的释放内存
+###（如果是非常严格的实时性场景，不能接受Redis对请求时不时有2毫秒延迟的话，改为no）
+activerehashing yes
 ----------------------------------------------------------------------
 ###指定包含其它的配置文件，如在同一主机上多个Redis实例使用同一份配置文件，同时各实例引用各自特定配置文件
 ###为保证自定义文件中的配置生效，必须将include这行放在最后一行
 include /path/to/6379.conf
 ```
-
-
 
 ## 启动
 
