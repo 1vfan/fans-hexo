@@ -19,29 +19,9 @@ categories:
 shift+command+p 去除访达右侧
 ```
 
-### tree
 
-```bash
-brew install tree
-
-###使用tree命令查看文件层级关系
-tree
-```
 
 ## 终端
-
-### 命令失效
-
-原因是在修改PATH时将export PATH=$$PATH，导致PATH失效，所有命令不可用.
-
-```bash
-###在窗口中临时修改PATH值
-export PATH=/usr/bin:/usr/sbin:/bin:/sbin:/usr/X11R6/bin
-###修改后发现可用，然后需要立刻修改.bash_profile文件
-sudo vi ~/.bash_profile
-source ~/.bash_profile
-echo $PATH
-```
 
 ### 创建环境变量文件
 
@@ -52,6 +32,28 @@ cd ~
 ls -al
 若不存在 .bash_profile文件则创建
 touch .bash_profile
+```
+
+```bash
+###ROOT PATH
+export GIT_HOME=/usr/local/opt/git
+export MVN_HOME=/usr/local/opt/maven
+export TOMCAT_HOME=/usr/local/opt/tomcat@8
+export PY_HOME=/usr/local/opt/python3
+
+###JDK VERSION
+# export JAVA_HOME=/usr/local/jdk7
+export JAVA_HOME=/usr/local/jdk8
+
+###EXPORT PATH
+export PATH=$JAVA_HOME/bin:$GIT_HOME/bin:$MVN_HOME/bin:$TOMCAT_HOME/bin:$PY_HOME/bin:$PATH
+export CLASSPATH=.:$JAVA_HOME/lib/dt.jar:$JAVA_HOME/lib/tools.jar
+
+###PY Virtual Env Config
+export WORKON_HOME='~/.virtualenvs'
+export VIRTUALENVWRAPPER_PYTHON='/usr/local/bin/python3'
+#export VIRTUALENVWRAPPER_PYTHON=PY_HOME/bin/python3
+source /usr/local/bin/virtualenvwrapper.sh
 ```
 
 ## iTerm2
@@ -169,7 +171,26 @@ Error: Failure while executing; `/usr/local/bin/brew tap homebrew/core` exited w
 Failed during: /usr/local/bin/brew update --force
 ```
 
-Homebrew的安装路径默认在 ``/usr/local/`` 下的Homebrew文件夹中，通过Homebrew安装的软件则安装在 ``/usr/local/Cellar/`` 中，这些软件的软链接则存放在 ``/usr/local/bin/`` 中.
+* Homebrew的安装路径: /usr/local/
+* brew install软件安装路径: /usr/local/Cellar/
+* brew install软件安装路径软链接: /usr/local/opt/
+* brew install软件执行命令软链接: /usr/local/bin/
+
+
+### 替换国内镜像源
+
+以下镜像是Homebrew的formula索引的镜像（即``brew update``时所更新内容），镜像源来自清华大学开源软件镜像站。
+
+```bash
+cd "$(brew --repo)"
+git remote set-url origin https://mirrors.tuna.tsinghua.edu.cn/git/homebrew/brew.git
+
+cd "$(brew --repo)/Library/Taps/homebrew/homebrew-core"
+git remote set-url origin https://mirrors.tuna.tsinghua.edu.cn/git/homebrew/homebrew-core.git
+
+brew update
+```
+
 
 ### Homebrew使用命令
 
@@ -227,6 +248,16 @@ brew cask search
 brew cask uninstall xxx
 ```
 
+### tree
+
+```bash
+brew install tree
+
+###使用tree命令查看文件层级关系
+tree
+```
+
+
 ## Git
 
 Mac系统自带原生安装Git，默认安装在 ``/usr/bin/git`` 中，因为Mac防止恶意入侵，加入了Rootless机制，禁止操作/usr/bin/目录中文件，会出现Operation not permitted错误不易卸载，通过下面其他方式安装覆盖原生的Git版本就行.
@@ -238,27 +269,15 @@ git version 2.15.1 (Apple Git-101)
 
 ### dmg镜像安装Git
 
-从官网下载 ``git-2.15.1-intel-universal-mavericks.dmg`` 镜像安装包，打开后双击 ``git-2.15.1-intel-universal-mavericks.pkg`` 进行界面安装.
-
-完成安装后还需要将Git安装路径（/usr/local/git/bin/）添加到PATH中.
+从官网下载 ``git-2.15.1-intel-universal-mavericks.dmg`` 镜像安装包，打开后双击 ``git-2.15.1-intel-universal-mavericks.pkg`` 进行界面安装，然后添加PATH.
 
 ```bash
-###打开PATH编辑文件
-sudo vi ~/.bash_profile
-###修改PATH
-export GIT_HOME=/usr/local/git
-export PATH=$GIT_HOME/bin:$PATH
-###让PATH生效
-source ~/.bash_profile
-###验证PATH
-echo $PATH
 ###验证Git
 Stefan-Mac:~ stefan$ git --version
 git version 2.15.1
-
 ###查看Mac中所有Git
 which -a git
-###一个命令卸载Git，同时注意PATH中的/usr/local/git/bin/已经不存在注意修改
+###一个命令卸载Git
 /usr/local/git/uninstall.sh
 ```
 
@@ -364,17 +383,9 @@ Uninstalling /usr/local/Cellar/git/2.18.0...
 
 ```bash
 ###默认安装路径太长，新建软连接
-Stefan-Mac:Home stefan$ ln -s /Library/Java/JavaVirtualMachines/jdk1.7.0_80.jdk/Contents/Home /usr/local/java7
+Stefan-Mac:Home stefan$ ln -s /Library/Java/JavaVirtualMachines/jdk1.7.0_80.jdk/Contents/Home /usr/local/jdk7
 ln: /usr/local/java7: Permission denied
-Stefan-Mac:Home stefan$ sudo ln -s /Library/Java/JavaVirtualMachines/jdk1.7.0_80.jdk/Contents/Home /usr/local/java7
-/usr/local/java7 -> /Library/Java/JavaVirtualMachines/jdk1.7.0_80.jdk/Contents/Home
-
-###添加PATH
-Stefan-Mac:local stefan$ more ~/.bash_profile
-export GIT_HOME=/usr/local
-export JAVA_HOME=/usr/local/java7
-export PATH=$JAVA_HOME/bin:$GIT_HOME/bin/git:$PATH
-export CLASSPATH=.:$JAVA_HOME/lib/dt.jar:$JAVA_HOME/lib/tools.jar
+Stefan-Mac:Home stefan$ sudo ln -s /Library/Java/JavaVirtualMachines/jdk1.7.0_80.jdk/Contents/Home /usr/local/jdk7
 ```
 
 ## Maven
@@ -431,14 +442,6 @@ class Maven < Formula
 
 ###最后就可以使用更改后的ruby文件下载
 Stefan-Mac:Formula stefan$ brew install ./maven.rb
-
-###添加PATH
-Stefan-Mac:local stefan$ more ~/.bash_profile
-export GIT_HOME=/usr/local
-export MVN_HOME=/usr/lcoal
-export JAVA_HOME=/usr/local/java7
-export PATH=$JAVA_HOME/bin:$GIT_HOME/bin/git:$MVN_HOME/bin/mvn:$PATH
-export CLASSPATH=.:$JAVA_HOME/lib/dt.jar:$JAVA_HOME/lib/tools.jar
 ```
 
 ### 配置Maven
