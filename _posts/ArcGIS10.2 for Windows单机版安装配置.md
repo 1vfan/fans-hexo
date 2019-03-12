@@ -47,7 +47,7 @@ start/stop License Service --> Stop
 
 ## 配置.net framework 3.5
 
-点击Setup安装Desktop时，可能会提示安装ArcGIS需要最低 .net framework 3.5 的支持.
+点击Setup安装Desktop时，可能会提示安装ArcGIS需要最低 .net framework 3.5 的支持（没有提示则跳过该步骤）.
 
 ```bash
 计算机 --> 管理 --> 功能 --> 添加功能 --> 安装.net framework 3.5

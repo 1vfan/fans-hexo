@@ -61,13 +61,6 @@ categories:
 4. 重复上面``Win版``的第3步。
 
 
-## 与eclipse的区别
-
-|工具|工程|项目|
-|---|---|---|
-|Intellij IDEA|workspace|project|
-|eclipse|project|module|
-
 ## export jar
 
 ```bash
@@ -357,7 +350,14 @@ setting -> inspectiongs -> JPA issues -> query language check 勾取消即可，
 
 setting -> system settings -> updata -> Use secure Connetion  勾取消即可，因为使用了https协议下载导致的问题.
 
+4. objc[8715]: Class JavaLaunchHelper is implemented in both /Library/Java/JavaVirtualMachines/jdk1.8.0_131.jdk/Contents/Home/bin/java (0x102c804c0) and /Library/Java/JavaVirtualMachines/jdk1.8.0_131.jdk/Contents/Home/jre/lib/libinstrument.dylib (0x102d5c4e0). One of the two will be used. Which one is undefined.
 
+Help -> Edit Custom Properties... -> idea.properties添加以下内容后重启idea
+
+```
+idea_rt
+idea.no.launcher=true
+```
 
 ## 链接
 
