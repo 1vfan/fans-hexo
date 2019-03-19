@@ -3,7 +3,7 @@
 status、reserve作为预留字段，对应Hbase表中并没有这两个字段，当以后Hbase中新增了这些字段，Hive表中便能通过映射查询到对应的数据.
 
 ```sql
-beeline -u jdbc:hive2://hostname:10000/default  --maxWidth=10000
+beeline -u jdbc:hive2://RemoteServerIP:10000/database  --maxWidth=10000
 show tables;
 show create table bgis_track;
 drop table bgis_track;
@@ -28,7 +28,7 @@ desc bgis_track;
 
 # Hive导出数据
 
-如果取出的数据就存储在当前登陆的本地服务器上，可以使用 ``local directory`` 直接将数据导出到本地目录；但是使用 ``beeline -u jdbc:hive2://RemoteServer:10000/database -e`` 连接的是远程Hive库，则必须先将数据导入到HDFS，然后从HDFS导出到本地目录，因为此时的directory并不是本地路径而是远程server的文件路径.
+如果取出的数据就存储在当前登陆的本地服务器上，可以使用 ``local directory`` 直接将数据导出到本地目录；但是使用 ``beeline -u jdbc:hive2://RemoteServerIP:10000/database -e`` 连接的是远程Hive库，则必须先将数据导入到HDFS，然后从HDFS导出到本地目录，因为此时的directory并不是本地路径而是远程server的文件路径.
 
 理解错误可能会报如下错误：
 
@@ -57,7 +57,7 @@ select * from bgis_mileage;"
 #!/bin/bash
 mkdir -p /bgis/data
 ###beeline将查询数据导入HDFS中，各字段以\t分隔
-beeline -u jdbc:hive2://hostname:10000/database -e "insert overwrite directory '/tmp/database/mileage' row format delimited fields terminated by '\t' select * from bgis_mileage where dateTime = 20180310;"
+beeline -u jdbc:hive2://RemoteServerIP:10000/database -e "insert overwrite directory '/tmp/database/mileage' row format delimited fields terminated by '\t' select * from bgis_mileage where dateTime = 20180310;"
 
 ###将数据从HDFS中取出，存入本地路径
 hadoop fs -get /tmp/hive/track /bgis/data/
@@ -76,3 +76,22 @@ Found 1 items
 # hadoop fs -rm -f -r /tmp/default/mileage
 ```
 
+
+# 修改hive表location
+
+查看：
+
+desc database xxx;
+show create table xxx;
+
+两种方式：
+
+1. 通过修改表DDL：
+
+alter table t_m_cc set location 'hdfs://heracles/user/video-mvc/hive/warehouse/t_m_cc'
+
+2. 直接修改hive 的meta info:
+
+update `DBS` set `DB_LOCATION_URI` = replace(DB_LOCATION_URI,"oldpath","newpath")
+ 
+update SDS  set location =replace(location,'oldpath,'newpath')

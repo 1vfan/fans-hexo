@@ -277,7 +277,7 @@ public class HbaseTemplate {
      */
     public static Map<String, String> getCellAndValueByRowkey(String tableName, String family, String rowkey) throws Exception {
         Map<String, String> result = null;
-        HTableInterface hTableInterface = HbaseFactory.getConnection().getTbale(TbaleName.valueOf(tableName));
+        HTableInterface hTableInterface = HbaseFactory.getConnection().getTable(TableName.valueOf(tableName));
         Get get = new Get(Bytes.toBytes(rowkey));
         get.addFamily(Bytes.toBytes(family));
         Result r = hTableInterface.get(get);

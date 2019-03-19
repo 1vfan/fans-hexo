@@ -1,166 +1,162 @@
 ---
-title: ArcGIS10.2 for Windows单机版安装配置
+title: ArcGIS10.2 for Windows�����氲װ����
 date: 2017-08-12 17:13:45
 tags:
-- ArcGIS
+#NAME?
 categories: 
-- GIS
+#NAME?
 ---
 
-记录Esri ArcGIS10.2全套在Windows2008 R2中单机版安装部署说明
+��¼Esri ArcGIS10.2ȫ����Windows2008 R2�е����氲װ����˵��
 
 <!--more-->
 
-# 安装包准备
+# ��װ��׼��
 
-放在一个统一文件夹中 如（D:\ArcGisSoftware\）
+����һ��ͳһ�ļ����� �磨D:\ArcGisSoftware\��
 
 ```bash
 Desktop : ArcGIS_Desktop_102_134924.iso 
 Server  : ArcGIS_Server_Ent_Windows_102_134934.iso
 .net3.5 : dotNetFx35setup.exe
-Desktop破解文件 : ARCGIS.exe 、service.txt
-Servers授权许可 : arcgisproduct.ecp
+Desktop�ƽ��ļ� : ARCGIS.exe ��service.txt
+Servers��Ȩ���� : arcgisproduct.ecp
 ```
 
-# 安装Desktop并破解ArcGIS
+# ��װDesktop���ƽ�ArcGIS
 
-解压 ``ArcGIS_Desktop_102_134924.iso`` 到固定路径 如（D:\ArcGisSoftware\Desktop\），双击 ``ESRI.exe``.
+��ѹ ``ArcGIS_Desktop_102_134924.iso`` ���̶�·�� �磨D:\ArcGisSoftware\Desktop\����˫�� ``ESRI.exe``.
 
-## 检测历史版本
+## �����ʷ�汾
 
-``Run Utility`` 卸载历史版本.
+``Run Utility`` ж����ʷ�汾.
 
-## 安装LicenseManager
+## ��װLicenseManager
 
-安装LicenseManager后暂停License Service.
+��װLicenseManager����ͣLicense Service.
 
 ```bash
 ArcGIS for Desktop -->  ArcGIS License Manager --> Setup
-默认安装路径
+Ĭ�ϰ�װ·��
 finish successfully installed
-开始菜单 ArcGIS --> License Manager --> License Server Administrator
+��ʼ�˵� ArcGIS --> License Manager --> License Server Administrator
 start/stop License Service --> Stop
 ```
 
-下一步安装Desktop.
+��һ����װDesktop.
 
-## 配置.net framework 3.5
+## ����.net framework 3.5
 
-点击Setup安装Desktop时，可能会提示安装ArcGIS需要最低 .net framework 3.5 的支持（没有提示则跳过该步骤）.
+���Setup��װDesktopʱ�����ܻ���ʾ��װArcGIS��Ҫ���?.net framework 3.5 ��֧�֣�û����ʾ�������ò��裩.
 
 ```bash
-计算机 --> 管理 --> 功能 --> 添加功能 --> 安装.net framework 3.5
+����� --> ���� --> ���� --> ���ӹ��� --> ��װ.net framework 3.5
 ```
 
-下一步安装Desktop.
+��һ����װDesktop.
 
-## 安装Desktop
+## ��װDesktop
 
-finish安装Desktop后会弹出一个界面，放着先不用管.
+finish��װDesktop��ᵯ��һ�����棬�����Ȳ��ù�.
 
 ```bash
 ArcGIS for Desktop --> Setup
 Complete
-自定义安装路径 如（D:\ArcGIS\）（会自动生成一个Desktop10.2的根目录）
-python安装路径默认
-Install之前将之后更新选项的勾去掉
+�Զ��尲װ·�� �磨D:\ArcGIS\�������Զ�����һ��Desktop10.2�ĸ�Ŀ¼��
+python��װ·��Ĭ��
+Install֮ǰ��֮�����ѡ��Ĺ�ȥ��
 finish successfully installed
 ```
 
-下一步破解ArcGIS.
+��һ���ƽ�ArcGIS.
 
-## 破解ArcGIS
+## �ƽ�ArcGIS
 
-复制（D:\ArcGisSoftware\）中准备的  ``ARCGIS.exe 、service.txt`` 替换（C:\Program Files (x86)\ArcGIS\License10.2\bin\）中的相应文件.
+���ƣ�D:\ArcGisSoftware\����׼����  ``ARCGIS.exe ��service.txt`` �滻��C:\Program Files (x86)\ArcGIS\License10.2\bin\���е���Ӧ�ļ�.
 
-打开 ``service.txt`` ，将开头的 ``SERVER xxx ANY 27000`` 中 ``xxx`` 部分替换成本机计算机名.
-
-```bash
-开始菜单 --> ArcGIS --> Licenseanager --> License ServerAdministrator
-启动/停止许可服务 --> 启动 --> 重新读取许可
-
-开始菜单 --> ArcGIS --> ArcGIS Administrator
-选择产品 --> Advanced(ArcInfo)浮动版
-许可管理器 --> localhost
-```
-
-破解完成后，点击 ``可用性`` 可以看到 ``过期:永久`` 的列表，代表ArcGIS完美破解.
-
-## 问题解决
-
-安装过程中可能出现问题的解决方案：
-
-* 关闭防火墙
-* 重新启动License服务，重新读取许可
-* 最后实在没办法，重新安装License后再次破解
-
-# 安装Server和Adaptor
-
-安装ArcGIS Server 10.2 的前提是预先已经安装了 ArcGIS Desktop 10.2.
-
-## 检测系统
-
-ArcGIS Server 10.2 必须安装在用户名为Administrator账户下，首先需要激活win系统中该账户.
+�� ``service.txt`` ������ͷ�� ``SERVER xxx ANY 27000`` �� ``xxx`` �����滻�ɱ����������.
 
 ```bash
-开始菜单 --> 右键cmd命令提示符 --> 以管理员身份运行
-输入：net user administrator /active:yes
-命令成功完成
+��ʼ�˵� --> ArcGIS --> Licenseanager --> License ServerAdministrator
+����/ֹͣ���ɷ��� --> ���� --> ���¶�ȡ����
+
+��ʼ�˵� --> ArcGIS --> ArcGIS Administrator
+ѡ���Ʒ --> Advanced(ArcInfo)������
+���ɹ����� --> localhost
 ```
 
-保证administrator用户存在，并设有密码，否则无法安装ArcGIS Server 10.2.
+�ƽ���ɺ󣬵�� ``������`` ���Կ��� ``����:����`` ���б�������ArcGIS�����ƽ�.
+
+## ������
+
+��װ�����п��ܳ�������Ľ��������
+
+* �رշ���ǽ
+* ��������License�������¶�ȡ����
+* ���ʵ��û�취�����°�װLicense���ٴ��ƽ�
+
+# ��װServer��Adaptor
+
+��װArcGIS Server 10.2 ��ǰ����Ԥ���Ѿ���װ�� ArcGIS Desktop 10.2.
+
+## ���ϵͳ
+
+ArcGIS Server 10.2 ���밲װ���û���ΪAdministrator�˻��£�������Ҫ����winϵͳ�и��˻�.
 
 ```bash
-计算机 --> 管理 --> 本地用户和组 --> 用户
-Administrator  右键设置密码
+��ʼ�˵� --> �Ҽ�cmd������ʾ�� --> �Թ���Ա��������
+���룺net user administrator /active:yes
+����ɹ����
 ```
 
-## 安装Server
+��֤administrator�û����ڣ����������룬�����޷���װArcGIS Server 10.2.
 
-解压 ``ArcGIS_Server_Ent_Windows_102_134934.iso`` 到固定路径 如（D:\ArcGisSoftware\Server\），双击 ``ESRI.exe`` , ``Run Utility`` 卸载历史版本.
+```bash
+����� --> ���� --> �����û����� --> �û�
+Administrator ?�Ҽ���������
+```
+
+## ��װServer
+
+"��ѹ ``ArcGIS_Server_Ent_Windows_102_134934.iso`` ���̶�·�� �磨D:\ArcGisSoftware\Server\����˫�� ``ESRI.exe`` , ``Run Utility`` ж����ʷ�汾."
 
 ```bash
 ArcGIS for Server --> Setup
-自定义安装路径 如（D:\ArcGIS\Server\）
-name: arcgis   password:尽量复杂与管理员密码一致好记 如（GIS123456）
-python安装路径默认
-选择 Do not export configure file
-添加授权许可 arcgisproduct.ecp 完成授权
+�Զ��尲װ·�� �磨D:\ArcGIS\Server\��
+name: arcgis   password:�������������Ա����һ�ºü� ��GISadminpassword01��
+python��װ·��Ĭ��
+ѡ�� Do not export configure file
+������Ȩ���� arcgisproduct.ecp �����Ȩ
 ```
 
-授权完成后浏览器会跳转到ArcGIS Server Manager页面，选择创建一个新站点.
+��Ȩ��ɺ����������ת��ArcGIS Server Managerҳ�棬ѡ�񴴽�һ����վ��.
 
 ```bash
-设置主站点管理员密码 (admin GIS123456)
-自定义服务器目录存储路径（D:\ArcGIS\arcgisserver\directories）
-自定义服务器配置存储路径（D:\ArcGIS\arcgisserver\config-store）
+������վ�����Ա���� (admin GIS123456)
+�Զ��������Ŀ¼�洢·����D:\ArcGIS\arcgisserver\directories��
+�Զ�����������ô洢·����D:\ArcGIS\arcgisserver\config-store��
 ```
 
-完成创建站点，登陆ArcGIS Server管理器 http://localhost:6080/arcgis/manager/
+��ɴ���վ�㣬��½ArcGIS Server������ http://localhost:6080/arcgis/manager/
 
-## 安装Adaptor
+## ��װAdaptor
 
 ```bash
 ArcGIS for Server --> ArcGIS Web Adaptor(IIS) --> Setup
-选择自动安装，下一步
+ѡ���Զ���װ����һ��
 name of ArcGIS for Adaptor : arcgis
 ```
 
-安装后会跳转到Web Adaptor配置页面（http://localhost/arcgis/webadaptor/server）.
+��װ�����ת��Web Adaptor����ҳ�棨http://localhost/arcgis/webadaptor/server��.
 
 ```bash
-GIS 服务器 URL: http://localhost:6080
-管理员用户名：admin
-密码：GIS123456
+GIS ������ URL: http://localhost:6080
+����Ա�û�����admin
+���룺GIS123456
 
-勾选（通过 Web Adaptor 启用对站点的管理访问） 完成配置
+��ѡ��ͨ�� Web Adaptor ���ö�վ��Ĺ������ʣ� �������
 ```
 
-配置成功后显示，GIS服务器已注册到Web Adaptor中.
+���óɹ�����ʾ��GIS��������ע�ᵽWeb Adaptor��.
 
-浏览器访问 http://localhost/arcgis/rest/services 查看已发布的服务，使用admin登陆.
-
-
-
-
+��������� http://localhost/arcgis/rest/services �鿴�ѷ����ķ���ʹ��admin��½.

@@ -61,7 +61,45 @@ categories:
 4. 重复上面``Win版``的第3步。
 
 
-## export jar
+## 创建项目
+
+### 非Maven版J2EE
+
+```bash
+Create New Project
+Java Enterprise
+Web Application
+Create web.xml
+Project name: flink-learning
+Project location: ~/IDEASpace/Flink/flink-learning
+
+Open Module settings
+Modules
+Sources、WEB-INF 、 Command+N 、 classes
+Paths 、 [Use module compile output path] 、 [~/IDEASpace/Flink/flink-learning/web/WEB-INF/classes]
+
+Libraries 、 + 、 Java 、 Jar Directory
+
+tomcat、Edit Configurations、Deployment、+  
+```
+
+### Maven版J2EE
+
+
+
+
+
+
+当加完一次依赖后，会有一个提示框
+maven projects need to be import
+点击Auto-import（自动导入）
+它会自动从网上下载所需要的包到你的本地仓库（默认是用户文件夹下面的 .m2/repository下面）
+
+### SpringBoot
+
+## 项目打包
+
+### export jar
 
 ```bash
 File
@@ -86,11 +124,13 @@ Build
 在``From modules with dependencies...``的时候报错时``manifest.mf already exists in vfs``代表IDEA之前对这个module打过jar包，所以module中会有一个MANIFEST.MF文件夹，提示的错误即时这个文件夹及其中的文件已经存在，所以把这个文件夹删除掉，再``Build`` -> ``Rebuild project``打包即可.
 
 
-## Maven
-当加完一次依赖后，会有一个提示框
-maven projects need to be import
-点击Auto-import（自动导入）
-它会自动从网上下载所需要的包到你的本地仓库（默认是用户文件夹下面的 .m2/repository下面）
+### export war
+
+
+
+
+
+
 
 ## 主题
 
