@@ -61,7 +61,7 @@ Hbase执行Delete命令并不会立即将数据从磁盘删除，而是通过创
 
 ### Key/Value
 
-KeyValue是Hbase的基础类型；但建议HBase应用程序和用户使用Cell接口，避免直接使用KeyValue和Cell中未定义的成员变量。
+KeyValue是Hbase数据存储的基础类型；但建议HBase应用程序和用户使用Cell接口，避免直接使用KeyValue和Cell中未定义的成员变量。
 
 ```java
 //An HBase Key/Value, This is the fundamental HBase Type.
@@ -79,19 +79,19 @@ public class KeyValue implements Cell, HeapSize, Cloneable {
 ```json
 //KeyValue内部存储结构
 {
-    keylength,
-    valuelength,
+    keylength,   //固定长度的数值4字节
+    valuelength, //固定长度的数值4字节
     key: {
         rowLength,
-        row (i.e., the rowkey),
+        row (rowkey),
         columnfamilylength,
         columnfamily,
         columnqualifier,
         timestamp,
-        keytype (e.g., Put, Delete, DeleteColumn, DeleteFamily)
+        keytype (Put、Delete、DeleteColumn、DeleteFamily)
     }
-    value
-｝
+    value   //一串二进制数据
+}
 ```
 
 ### 三维排序
@@ -150,7 +150,7 @@ Client通过Rowkey查询到数据的过程:
 ```bash
 ###每个存放region的文件夹名 = region的rowkey的hash值
 - RowKey:
-    ###region id = 创建region时间戳 + . + encode(作为底层hdfs存储的子目录名)
+    ###region id = 创建region时间戳 + . + encoded_regionname(作为底层hdfs存储的子目录名)
     - Region Key 格式（[tablename],[region start rowkey],[region id]）
 - Values:
     - info:regionInfo (.META.的HRegionInfo实例的序列化)
@@ -234,7 +234,7 @@ Region (splitRegion, compactRegion, etc.)
 ### HRegion
 
 Hbase自动把表按行的方向水平划分成多个区域（region），每个region会保存一个表里某段连续的数据；
-每个表一开始只有一个region，随着数据不断插入表，region不断增大，当增大到一个阀指，region会等分成两个新的region（裂变）；
+每个表一开始只有一个region，随着数据不断插入表，region不断增大，当增大到一个阀值，region会等分成两个新的region（裂变）；
 当表的行不断增多，会有越来越多的region，这样一张完整的表会被保存到多个region上，这些region的元数据会保存在meta表中(记录着每个region对应分布在哪个regionserver上)；
 
 region是hbase中分布式存储和负载均衡的最小单元，但不是存储的最小单元，单个region只属于某一个regionserver，除非裂变否则不可分割
@@ -243,7 +243,7 @@ memstore(内存空间 写缓存) storefile(具体的数据文件):
 
 ### Store
 
-每个Store对应一个表的一个列族的集中存储，所以根据业务可以将相同IO特性的列划分在同一列族内，实现高效的读写。
+一个Store对应表的单个列族的集中存储，所以根据业务可以将相同IO特性的列划分在同一列族内，实现高效的读写。
 
 
 
@@ -377,6 +377,9 @@ StoreFile的底层实现则是以HFile的形式存储在HDFS上。
 反过来，当两个HRegion足够小时，HBase也会将他们合并。
 
 
+
+
+
 ```
 
 ### 写过程
@@ -392,6 +395,26 @@ HLog(WAL log )作为预写日志，与一般的日志记录操作不同，它还
 memstore(内存写缓存) -> blockcache（内存读缓存） -> hfile（hdfs 磁盘）
 
 
+Hbase
+
+
+HBase使用MemStore和StoreFile存储对表的更新。数据在更新时首先写入HLog和MemStore。MemStore中的数据是排序的，当MemStore累计到一定阈值时，就会创建一个新的MemStore，并且将老的MemStore添加到Flush队列，由单独的线程Flush到磁盘上，成为一个StoreFile。与此同时，系统会在Zookeeper中记录一个CheckPoint，表示这个时刻之前的数据变更已经持久化了。当系统出现意外时，可能导致MemStore中的数据丢失，此时使用HLog来恢复CheckPoint之后的数据。 
+StoreFile是只读的，一旦创建后就不可以再修改。因此Hbase的更新其实是不断追加的操作。当一个Store中的StoreFile达到一定阈值后，就会进行一次合并操作,将对同一个key的修改合并到一起，形成一个大的StoreFile。当StoreFile的大小达到一定阈值后，又会对 StoreFile进行切分操作，等分为两个StoreFile。
+
+1.1 写操作流程 
+(1) Client通过Zookeeper的调度，向RegionServer发出写数据请求，在Region中写数据。 
+(2) 数据被写入Region的MemStore，直到MemStore达到预设阈值。 
+(3) MemStore中的数据被Flush成一个StoreFile。 
+(4) 随着StoreFile文件的不断增多，当其数量增长到一定阈值后，触发Compact合并操作，将多个StoreFile合并成一个StoreFile，同时进行版本合并和数据删除。 
+(5) StoreFiles通过不断的Compact合并操作，逐步形成越来越大的StoreFile。 
+(6) 单个StoreFile大小超过一定阈值后，触发Split操作，把当前Region Split成2个新的Region。父Region会下线，新Split出的2个子Region会被HMaster分配到相应的RegionServer上，使得原先1个Region的压力得以分流到2个Region上。 
+可以看出HBase只有增添数据，所有的更新和删除操作都是在后续的Compact历程中举行的，使得用户的写操作只要进入内存就可以立刻返回，实现了HBase I/O的高性能。
+
+1.2 读操作流程 
+(1) Client访问Zookeeper，查找-ROOT-表，获取.META.表信息。 
+(2) 从.META.表查找，获取存放目标数据的Region信息，从而找到对应的RegionServer。 
+(3) 通过RegionServer获取需要查找的数据。 
+(4) Regionserver的内存分为MemStore和BlockCache两部分，MemStore主要用于写数据，BlockCache主要用于读数据。读请求先到MemStore中查数据，查不到就到BlockCache中查，再查不到就会到StoreFile上读，并把读的结果放入BlockCache。 
 
 
 

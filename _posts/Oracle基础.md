@@ -5,17 +5,20 @@
 |DCL数据控制语言|grant、revoke|
 |TCL事务控制语言|commit、rollback、savepoint|
 
-|数据类型|关键字|
+|data type|description|
 |---|---|
-|字符|var定长和可变长的区别；n不同字符集下字符占字节数的区别|
-|char|长度基本一致；更新频繁；少量null|
-|varchar|长度变化较大；查询频繁；经常没有数据null或空|
-|varchar2|max4000字节(4000字母；GBK2000汉字；UTF81333汉字)|
-|nvarchar2|max4000字节=2000字符(汉字或字母)，不受数据库字符编码影响|
-|所有字符|insert values('') = insert values(null) 搜索须用where xx is null；char列null占存储空间varchar不占|
+|区别|var:固定长和可变长的区别；n:占字节数是否受字符集编码影响的区别|
+|所有字符|insert values('') = insert values(null) 搜索都须用where xx is null|
+|char|max200字节(200字母数字；GBK汉字/2；UTF8汉字/3)|
+|varchar|Oracle不建议使用|
+|varchar2|max200字节(200字母数字；GBK汉字/2；UTF8汉字/3)|
+|nvarchar2|max200字节=200字符（汉字字母数字），不受字符集编码影响|
 |数值型|number(2)、number(38,8)|
 |日期型|date、timestamp|
 |大对象|clob单字节数据(文本)、blob二进制数据(音频视频)|
+
+固定长度char和可变长度varchar都是SQL标准；主要体现在存储空间层面的差别：
+char按设定的最大字节数分配空间，缺点在于可能浪费存储空间；varchar则按实际存储字符长度分配磁盘空间，但不能因此就将最大字节数设置得过大，因为内存分配是按设定的最大字节分配，varchar的缺点就是面对更新时，需要进行额外的计算等操作；所以固定字段、短信息字段、频繁更新的字段使用char较合适；定长类型字段值为NULL会占用存储空间，其他类型则不占用，所以多NULL的字段不适合用char。
 
 ## 常用数据类型转换
 
@@ -119,4 +122,10 @@ filter ("type"<>'C' and "type"<>'D' and "type"<>TO_NUMBER(NULL))
 exists 非全表扫描
 
 
-## 
+## 删除禁忌
+
+不规范示例: ``DELETE FROM a WHERE id in (SELECT id FROM b)``
+如果b表恰好有数据，且b表没有id字段，那么子查询中的id就是a表的id字段，条件就相当于``WHERE a.id=a.id``，则a表中的数据就全被删除。 
+SQL规范需要指定字段归属表: ``DELETE FROM a WHERE a.id in (SELECT b.id FROM b)``
+
+

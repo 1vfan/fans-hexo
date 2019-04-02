@@ -1,6 +1,34 @@
 
 # Java api
 
+## Version
+
+获取多版本
+
+```java
+public static final byte[] CF = "cf".getBytes();
+public static final byte[] ATTR = "attr".getBytes();
+...
+Get get = new Get(Bytes.toBytes("row1"));
+get.setMaxVersions(3);  // will return last 3 versions of row
+Result r = table.get(get);
+byte[] b = r.getValue(CF, ATTR);  // returns current version of value
+List<KeyValue> kv = r.getColumn(CF, ATTR);  // returns all versions of this column
+```
+
+手工指定版本号（不推荐）
+
+```java
+public static final byte[] CF = "cf".getBytes();
+public static final byte[] ATTR = "attr".getBytes();
+...
+Put put = new Put( Bytes.toBytes(row));
+long explicitTimeInMs = 555;  // just an example
+put.add(CF, ATTR, explicitTimeInMs, Bytes.toBytes(data));
+table.put(put);
+```
+
+
 ## Filter
 
 ### SingleColumnValueFilter
@@ -26,11 +54,26 @@ scan.setFilter(filter);
 hbase(main)> help 'scan'
 ```
 
+## namespace
+
+```bash
+###hbase - system namespace, used to contain HBase internal tables
+###default - tables with no explicit specified namespace will automatically fall into this namespace
+hbase(main)> create 'bgis:bgis_track', 'track_info'
+hbase(main)> create 'bgis_track', 'track_info'
+```
+
 ## create
+
+The maximum number of versions to store for a given column is part of the column schema and is specified at table creation, or via an alter command, via HColumnDescriptor.DEFAULT_VERSIONS. 
+Prior to HBase 0.96-> 3, but in 0.96 and newer has been changed to 1.
+Starting with 0.98.2, you can setting ``hbase.column.max.version`` in hbase-site.xml. 
 
 ```bash
 ###create table, {family}, {family}, ...
 hbase(main)> create 'bgis_track', {NAME=>'track_info', VERSIONS=>1} 
+
+hbase(main)> alter 'bgis_track', NAME=>'mileage_info', VERSIONS=>3
 ```
 
 ## alter
@@ -95,6 +138,17 @@ hbase(main)> get 'bgis_track', '999000_1500000000001'
 hbase(main)> get 'bgis_track', '999000_1500000000001', 'track_info:recipientUserId'
 ```
 
+## count
+
+```bash
+hbase(main)> count 'bgis_track'
+
+hbase(main)> count 'bgis_track', CACHE=>1000
+
+###It’s quite fast when configured with the right CACHE. Default is to fetch one row at a time.
+###The above count fetches 1000 rows at a time. Set CACHE lower if your rows are big.
+```
+
 ## scan
 
 ```bash
@@ -102,3 +156,4 @@ hbase(main)> scan 'bgis_track'
 ###LIMIT必须大写
 hbase(main)> scan 'bgis_track', {LIMIT => 10}
 ```
+
