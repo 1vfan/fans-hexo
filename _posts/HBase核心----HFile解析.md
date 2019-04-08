@@ -1,3 +1,6 @@
+> 源代码基于HBase 0.98
+
+
 ## HFile
 
 ### 物理存储
@@ -84,15 +87,174 @@ block type包括``BlockHeader``和``BlockData``；BlockHeader主要存储block�
 
 HFile中Block大小在建表描述列族时指定，Data Block默认``BLOCKSIZE=>65536``，大号Data Block有利于顺序Scan，小号Data Block有利于随机get。
 
-### HFile读写
+### HFile读
 
-数据从memstore flushing到HFile的同时，在内存中记录数据索引及Bloom等信息，待数据完全刷盘完成后，索引等信息也在内存中建立完毕并追加写入HFile；从HFile读取数据时（索引等在文件尾部，如何快速定位数据），原来加载文件后是从后往前读，首先根据具体Version获取固定长度``Trailer``，然后解析``Trailer``并加载到内存，最后加载``Load-on-open``区域的数据，具体如下：
+数据从memstore flushing到HFile的同时，在内存中记录数据索引及Bloom等信息，待数据完全刷盘完成后，索引等信息也在内存中建立完毕并append写入HFile尾部；
 
-1. 首先读取``Trailer``中的Version信息，根据不同的版本(V1/V2/V3)决定使用不同的Reader对象读取解析HFile；
+读取HFile时，加载文件后从后往前读，首先根据具体Version创建对应Reader，具体如下：
 
-2. 然后根据Version信息获取Trailer的长度（不同version的Trailer长度不同），根据Trailer长度加载整个Trailer；
+```java
+package org.apache.hadoop.hbase.regionserver;
 
-3. 最后加载``Load-on-open``部分到内存中，起始偏移地址是Trailer中的``LoadOnOpenDataOffset``字段，``Load-on-open``部分的结束偏移量=HFile总长度-Trailer长度，``Load-on-open``部分主要包括Root Index和FileInfo。
+import org.apache.hadoop.hbase.io.hfile.HFile;
+
+public class StoreFile {
+
+  /** Reader for a StoreFile. */
+  public static class Reader {
+
+    private final HFile.Reader reader;
+
+    public Reader(FileSystem fs, Path path, CacheConfig cacheConf, Configuration conf)
+        throws IOException {
+      reader = HFile.createReader(fs, path, cacheConf, conf);
+      bloomFilterType = BloomType.NONE;
+    }
+
+    public Reader(FileSystem fs, Path path, FSDataInputStreamWrapper in, long size,
+        CacheConfig cacheConf, Configuration conf) throws IOException {
+      reader = HFile.createReader(fs, path, in, size, cacheConf, conf);
+      bloomFilterType = BloomType.NONE;
+    }
+  }
+}
+```
+
+加载``Trailer``进内存，根据获取的HFile版本（``trailer.getMajorVersion()``）创建对应的Reader对象以解析HFile;
+
+```java
+package org.apache.hadoop.hbase.io.hfile;
+
+public class HFile {
+
+  /**
+   * @param fs: A file system.
+   * @param path: HFile path.
+   * @param fsdis: a stream of path's file.
+   * @param size: HFile size.
+   * @param cacheConf: Cache configuation values, cannot be null.
+   * @param conf
+   * @return A specific version HFile Reader
+   */
+  public static Reader createReader(FileSystem fs, Path path,
+      FSDataInputStreamWrapper fsdis, long size, CacheConfig cacheConf, Configuration conf)
+      throws IOException {
+    HFileSystem hfs = null;
+    if (!(fs instanceof HFileSystem)) {
+      hfs = new HFileSystem(fs);
+    } else {
+      hfs = (HFileSystem)fs;
+    }
+    return pickReaderVersion(path, fsdis, size, cacheConf, hfs, conf);
+  }
+
+  public static Reader createReader(
+      FileSystem fs, Path path, CacheConfig cacheConf, Configuration conf) throws IOException {
+    Preconditions.checkNotNull(cacheConf, "Cannot create Reader with null CacheConf");
+    FSDataInputStreamWrapper stream = new FSDataInputStreamWrapper(fs, path);
+    return pickReaderVersion(path, stream, fs.getFileStatus(path).getLen(),
+      cacheConf, stream.getHfs(), conf);
+  }
+
+  /**
+   * Method returns the reader given the specified arguments.
+   */
+  private static Reader pickReaderVersion(Path path, FSDataInputStreamWrapper fsdis,
+      long size, CacheConfig cacheConf, HFileSystem hfs, Configuration conf) throws IOException {
+    FixedFileTrailer trailer = null;
+    try {
+      boolean isHBaseChecksum = fsdis.shouldUseHBaseChecksum();
+      assert !isHBaseChecksum;
+      // 1. Reads Trailer file from the given file.
+      trailer = FixedFileTrailer.readFromStream(fsdis.getStream(isHBaseChecksum), size);
+      // 2. get HFile Version（V2 or V3） and use specific HFileReader to parse HFile.
+      switch (trailer.getMajorVersion()) {
+      case 2:
+        return new HFileReaderV2(path, trailer, fsdis, size, cacheConf, hfs, conf);
+      case 3 :
+        return new HFileReaderV3(path, trailer, fsdis, size, cacheConf, hfs, conf);
+      default:
+        throw new IllegalArgumentException("Invalid HFile version " + trailer.getMajorVersion());
+      }
+    } catch (Throwable t) {
+      try {
+        fsdis.close();
+      } catch (Throwable t2) {
+        LOG.warn("Error closing fsdis FSDataInputStreamWrapper", t2);
+      }
+      throw new CorruptHFileException("Problem reading HFile Trailer from file " + path, t);
+    }
+  }
+}
+```
+
+根据Trailer中起始偏移地址``LoadOnOpenDataOffset``和结束偏移量（fileSize - trailerSize）将``Load-on-open``加载进内存，读取其中的Root Index和FileInfo。
+
+```java
+package org.apache.hadoop.hbase.io.hfile;
+
+/**
+ * Reader for V2.
+ * HFileReaderV2 extends AbstractHFileReader
+ * HFileReaderV3 extends HFileReaderV2
+ */
+public class HFileReaderV2 extends AbstractHFileReader {
+  
+  /** Opens a HFile. Load the index .*/
+  public HFileReaderV2(final Path path, final FixedFileTrailer trailer,
+      final FSDataInputStreamWrapper fsdis, final long size, final CacheConfig cacheConf,
+      final HFileSystem hfs, final Configuration conf) throws IOException {
+    super(path, trailer, size, cacheConf, hfs, conf);
+    ...
+
+    // Comparator class name is stored in the trailer in version 2.
+    comparator = trailer.createComparator();
+    
+    // 3. Parse load-on-open data.
+    this.hfileContext = createHFileContext(fsdis, fileSize, hfs, path, trailer);
+    HFileBlock.FSReaderV2 fsBlockReaderV2 = new HFileBlock.FSReaderV2(fsdis, fileSize, hfs, path,
+        hfileContext);
+    HFileBlock.BlockIterator blockIter = fsBlockReaderV2.blockRange(
+        trailer.getLoadOnOpenDataOffset(),
+        fileSize - trailer.getTrailerSize());
+
+    // 3.1 Read Data index.
+    dataBlockIndexReader = new HFileBlockIndex.BlockIndexReader(comparator,
+        trailer.getNumDataIndexLevels(), this);
+    dataBlockIndexReader.readMultiLevelIndexRoot(
+        blockIter.nextBlockWithBlockType(BlockType.ROOT_INDEX),
+        trailer.getDataIndexCount());
+
+    // 3.2 Read Meta index.
+    metaBlockIndexReader = new HFileBlockIndex.BlockIndexReader(
+        KeyValue.RAW_COMPARATOR, 1);
+    metaBlockIndexReader.readRootIndex(
+        blockIter.nextBlockWithBlockType(BlockType.ROOT_INDEX),
+        trailer.getMetaIndexCount());
+
+    // 3.3 Read File info.
+    fileInfo = new FileInfo();
+    fileInfo.read(blockIter.nextBlockWithBlockType(BlockType.FILE_INFO).getByteStream());
+    //fileInfo.get(lastKey, avgKeyLen, avgValueLen, keyValueFormatVersion)
+    ...
+
+    // 3.4 Read data block encoding algorithm name from file info.
+    dataBlockEncoder = HFileDataBlockEncoderImpl.createFromFileInfo(fileInfo);
+    fsBlockReaderV2.setDataBlockEncoder(dataBlockEncoder);
+  }
+}
+```
+
+
+### HFile 写
+
+
+
+
+
+
+
+
 
 
 ### Bloom Filter

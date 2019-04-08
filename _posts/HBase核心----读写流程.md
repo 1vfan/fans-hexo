@@ -1,3 +1,400 @@
+
+# 读
+
+一次客户端发起的读请求可分成两个阶段: 客户端如何将请求发送给正确的RegionServer、被请求的RegionServer如何处理读请求。
+
+## Client精准请求
+
+为什么访问HBase集群的客户端程序配置文件中只需要配置HMaster、ZK地址和根目录，不配置RegionServer的地址列表，如何将请求发送给正确的RegionServer？
+
+1. 元数据表hbase:meta的元信息保存在ZK中，RPC请求ZK获取Meta表所在RegionServer
+2. 请求Meta表所在RegionservServer，将meta数据表缓存在客户端本地
+(第一次客户端请求需要执行 1 2步，之后该客户端只需要查询本地缓存中的meta表数据；)
+查询meta表获取请求rowkey所在Regionserver并发起请求
+
+
+```java
+package org.apache.hadoop.hbase.client;
+
+public class HTable implements HTableInterface {
+
+  @Override
+  public Result get(final Get get) throws IOException {
+    final PayloadCarryingRpcController controller = rpcControllerFactory.newController();
+    controller.setPriority(tableName);
+    //1.0
+    RegionServerCallable<Result> callable =
+        new RegionServerCallable<Result>(this.connection, getName(), get.getRow()) {
+          public Result call() throws IOException {
+            //1.1
+            return ProtobufUtil.get(getStub(), getLocation().getRegionInfo().getRegionName(), get,
+              controller);
+          }
+        };
+    //9.0
+    return rpcCallerFactory.<Result> newCaller().callWithRetries(callable, this.operationTimeout);
+  }
+
+  @Override
+  public Result[] get(List<Get> gets) throws IOException {
+    ...
+  }
+}
+```
+
+```java
+package org.apache.hadoop.hbase.protobuf;
+
+public final class ProtobufUtil {
+    //1.1
+    public static Result get(ClientService.BlockingInterface client, regionName, Get get, controller) {
+        GetRequest request =
+            RequestConverter.buildGetRequest(regionName, get);
+        try {
+            //1.2
+            GetResponse response = client.get(controller, request);
+            if (response == null) return null;
+            return toResult(response.getResult());
+        } catch (ServiceException se) {
+            throw getRemoteException(se);
+        }
+    }
+}
+
+
+
+package org.apache.hadoop.hbase.protobuf.generated;
+
+public final class ClientProtos {
+    public interface BlockingInterface {
+      //1.2 => 1.3 RPC调用远程RegionSever定义的函数
+      public org.apache.hadoop.hbase.protobuf.generated.ClientProtos.GetResponse get(
+          com.google.protobuf.RpcController controller,
+          org.apache.hadoop.hbase.protobuf.generated.ClientProtos.GetRequest request)
+          throws com.google.protobuf.ServiceException;
+    }
+}
+```
+
+## Server处理请求
+
+
+```java
+package org.apache.hadoop.hbase.regionserver;
+
+public class HRegionServer implements ClientProtos.ClientService.BlockingInterface,
+  AdminProtos.AdminService.BlockingInterface, Runnable, RegionServerServices,
+  HBaseRPCErrorHandler, LastSequenceId {
+
+  //1.3
+  @Override
+  public GetResponse get(final RpcController controller,
+      final GetRequest request) throws ServiceException {
+    long before = EnvironmentEdgeManager.currentTimeMillis();
+    try {
+      checkOpen();
+      requestCount.increment();
+      HRegion region = getRegion(request.getRegion());
+
+      if (get.hasClosestRowBefore() && get.getClosestRowBefore()) {
+       ...
+      } else {
+        Get clientGet = ProtobufUtil.toGet(get);
+        if (get.getExistenceOnly() && region.getCoprocessorHost() != null) {
+          existence = region.getCoprocessorHost().preExists(clientGet);
+        }
+        if (existence == null) {
+          //1.4
+          r = region.get(clientGet);
+        }
+      }
+      ...
+  }
+}
+```
+
+```java
+package org.apache.hadoop.hbase.regionserver;
+
+public class HRegion implements HeapSize {
+  //1.4
+  public Result get(final Get get) throws IOException {
+    //检测get请求的rowkey是否在region范围内
+    checkRow(get.getRow(), "Get");
+    //检测请求中带的CF，没带则加入所有CF
+    if (get.hasFamilies()) {
+      checkFamily(family);
+    } else {
+      get.addFamily(family);
+    }
+    //1.5
+    List<Cell> results = get(get, true);
+    return results;
+  }
+
+  //1.5
+  public List<Cell> get(Get get, boolean withCoprocessor)
+    throws IOException {
+    List<Cell> results = new ArrayList<Cell>();
+    // pre-get CP hook
+    if (withCoprocessor && (coprocessorHost != null)) {
+       if (coprocessorHost.preGet(get, results)) {
+         return results;
+       }
+    }
+    //get其实也是scan
+    Scan scan = new Scan(get);
+    RegionScanner scanner = null;
+    try {
+      //1.6  实例化RegionScanner
+      scanner = getScanner(scan);
+      //2.0
+      scanner.next(results);
+    } finally {
+      if (scanner != null)
+        scanner.close();
+    }
+    // post-get CP hook
+    if (withCoprocessor && (coprocessorHost != null)) {
+      coprocessorHost.postGet(get, results);
+    }
+    ...
+    return results;
+  }
+
+  //1.6
+  public RegionScanner getScanner(Scan scan) throws IOException {
+   //1.7
+   return getScanner(scan, null);
+  }
+
+  //1.7
+  protected RegionScanner getScanner(Scan scan,
+      List<KeyValueScanner> additionalScanners) throws IOException {
+    startRegionOperation(Operation.SCAN);
+    try {
+      //scan请求检测CF,没有则添加所有
+      prepareScanner(scan);
+      if(scan.hasFamilies()) {
+        for(byte [] family : scan.getFamilyMap().keySet()) {
+          checkFamily(family);
+        }
+      }
+      //1.8
+      return instantiateRegionScanner(scan, additionalScanners);
+    } finally {
+      closeRegionOperation(Operation.SCAN);
+    }
+  }
+
+  //1.8
+  protected RegionScanner instantiateRegionScanner(Scan scan,
+      List<KeyValueScanner> additionalScanners) throws IOException {
+    if (scan.isReversed()) {
+      if (scan.getFilter() != null) {
+        scan.getFilter().setReversed(true);
+      }
+      return new ReversedRegionScannerImpl(scan, additionalScanners, this);
+    }
+    //1.9
+    return new RegionScannerImpl(scan, additionalScanners, this);
+  }
+}
+```
+
+
+```java
+package org.apache.hadoop.hbase.regionserver;
+
+public class HRegion implements HeapSize {
+  class RegionScannerImpl implements RegionScanner {
+    //1.9 构建多个StoreScanner
+    RegionScannerImpl(Scan scan, List<KeyValueScanner> additionalScanners, HRegion region)
+            throws IOException {
+        ...
+        List<KeyValueScanner> scanners = new ArrayList<KeyValueScanner>();
+        List<KeyValueScanner> joinedScanners = new ArrayList<KeyValueScanner>();
+
+        for (Map.Entry<byte[], NavigableSet<byte[]>> entry :
+            scan.getFamilyMap().entrySet()) {
+            //为每个CF创建对应的Store对象，进而创建各自的StoreScanner
+            Store store = stores.get(entry.getKey());
+            //2.0 
+            KeyValueScanner scanner = store.getScanner(scan, entry.getValue(), this.readPt);
+            if (this.filter == null || !scan.doLoadColumnFamiliesOnDemand()
+            || this.filter.isFamilyEssential(entry.getKey())) {
+            scanners.add(scanner);
+            } else {
+            joinedScanners.add(scanner);
+            }
+        }
+        initializeKVHeap(scanners, joinedScanners, region);
+    }
+  }
+}
+```
+
+```java
+package org.apache.hadoop.hbase.regionserver;
+
+public class HStore implements Store {
+  
+  //2.0
+  @Override
+  public KeyValueScanner getScanner(Scan scan,
+      final NavigableSet<byte []> targetCols, long readPt) throws IOException {
+    lock.readLock().lock();
+    try {
+      KeyValueScanner scanner = null;
+      if (this.getCoprocessorHost() != null) {
+        scanner = this.getCoprocessorHost().preStoreScannerOpen(this, scan, targetCols);
+      }
+      if (scanner == null) {
+        //2.1
+        scanner = scan.isReversed() ? new ReversedStoreScanner(this,
+            getScanInfo(), scan, targetCols, readPt) : new StoreScanner(this,
+            getScanInfo(), scan, targetCols, readPt);
+      }
+      return scanner;
+    } finally {
+      lock.readLock().unlock();
+    }
+  }
+}
+```
+
+```java
+package org.apache.hadoop.hbase.regionserver;
+
+public class StoreScanner extends NonReversedNonLazyKeyValueScanner
+    implements KeyValueScanner, InternalScanner, ChangedReadersObserver {
+  /**
+   * Opens a scanner across memstore, snapshot, and all StoreFiles. Assumes we
+   * are not in a compaction.
+   *
+   * @param store who we scan
+   * @param scan the spec
+   * @param columns which columns we are scanning
+   * @throws IOException
+   */
+  
+  //2.1
+  public StoreScanner(Store store, ScanInfo scanInfo, Scan scan, final NavigableSet<byte[]> columns,
+      long readPt) throws IOException {
+    this(store, scan.getCacheBlocks(), scan, columns, scanInfo.getTtl(),
+        scanInfo.getMinVersions(), readPt);
+    if (columns != null && scan.isRaw()) {
+      throw new DoNotRetryIOException(
+          "Cannot specify any column for a raw scan");
+    }
+    matcher = new ScanQueryMatcher(scan, scanInfo, columns,
+        ScanType.USER_SCAN, Long.MAX_VALUE, HConstants.LATEST_TIMESTAMP,
+        oldestUnexpiredTS, now, store.getCoprocessorHost());
+
+    this.store.addChangedReaderObserver(this);
+
+    //2.2
+    // Pass columns to try to filter out unnecessary StoreFiles.
+    List<KeyValueScanner> scanners = getScannersNoCompaction();
+
+    // Seek all scanners to the start of the Row (or if the exact matching row
+    // key does not exist, then to the start of the next matching Row).
+    // Always check bloom filter to optimize the top row seek for delete
+    // family marker.
+    seekScanners(scanners, matcher.getStartKey(), explicitColumnQuery
+        && lazySeekEnabledGlobally, isParallelSeekEnabled);
+
+    // set storeLimit
+    this.storeLimit = scan.getMaxResultsPerColumnFamily();
+
+    // set rowOffset
+    this.storeOffset = scan.getRowOffsetPerColumnFamily();
+
+    // Combine all seeked scanners with a heap
+    resetKVHeap(scanners, store.getComparator());
+  }
+}
+```
+
+
+```java
+  /**
+   * Get a filtered list of scanners. Assumes we are not in a compaction.
+   * @return list of scanners to seek
+   */
+   //2.2
+  protected List<KeyValueScanner> getScannersNoCompaction() throws IOException {
+    final boolean isCompaction = false;
+    boolean usePread = isGet || scanUsePread;
+    //2.3
+    return selectScannersFrom(store.getScanners(cacheBlocks, isGet, usePread,
+        isCompaction, matcher, scan.getStartRow(), scan.getStopRow(), this.readPt));
+  }
+```
+
+```java
+//2.3
+/**
+   * Filters the given list of scanners using Bloom filter, time range, and
+   * TTL.
+   */
+  protected List<KeyValueScanner> selectScannersFrom(
+      final List<? extends KeyValueScanner> allScanners) {
+    boolean memOnly;
+    boolean filesOnly;
+    if (scan instanceof InternalScan) {
+      InternalScan iscan = (InternalScan)scan;
+      memOnly = iscan.isCheckOnlyMemStore();
+      filesOnly = iscan.isCheckOnlyStoreFiles();
+    } else {
+      memOnly = false;
+      filesOnly = false;
+    }
+
+    List<KeyValueScanner> scanners =
+        new ArrayList<KeyValueScanner>(allScanners.size());
+
+    // We can only exclude store files based on TTL if minVersions is set to 0.
+    // Otherwise, we might have to return KVs that have technically expired.
+    long expiredTimestampCutoff = minVersions == 0 ? oldestUnexpiredTS :
+        Long.MIN_VALUE;
+
+    // include only those scan files which pass all filters
+    for (KeyValueScanner kvs : allScanners) {
+      boolean isFile = kvs.isFileScanner();
+      if ((!isFile && filesOnly) || (isFile && memOnly)) {
+        continue;
+      }
+
+      //2.4
+      if (kvs.shouldUseScanner(scan, columns, expiredTimestampCutoff)) {
+        scanners.add(kvs);
+      }
+    }
+    return scanners;
+  }
+```
+
+```java
+package org.apache.hadoop.hbase.regionserver;
+
+public class StoreFileScanner implements KeyValueScanner {
+
+    @Override
+    public boolean isFileScanner() {
+        return true;
+    }
+
+    //2.4
+    @Override
+    public boolean shouldUseScanner(Scan scan, SortedSet<byte[]> columns, long oldestUnexpiredTS) {
+        return reader.passesTimerangeFilter(scan, oldestUnexpiredTS)
+            && reader.passesKeyRangeFilter(scan) && reader.passesBloomFilter(scan, columns);
+    }
+}
+```
+
+
 ### 读
 
 HBase读文件细粒度的过程？HBase随机读写快除了MemStore之外的原因？
