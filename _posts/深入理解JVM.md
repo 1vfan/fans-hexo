@@ -223,6 +223,16 @@ new Object() --> 对象实例数据值、对象类型数据的地址信息（或
 -XX:ParallelGCThreads 设置并行回收的线程数量
 ```
 
+### Full GC
+
+配置CMS引发Full GC的几种可能：
+
+- 大对象分配时，年轻代不够，直接晋升到老年代，老年代空间也不够，触发 Full GC（查看空间是否不足）
+- 基于CMS收集器GC会导致大量内存碎片，进而触发 Full GC（通过grep -i "cms" gc.log排查）
+- 基于CMS收集器GC过程失败（grep -i "concurrent mode failure" gc.log排查）
+- 手动执行jmap -histo:live会触发 Full GC（是否人为执行过该命令）
+
+
 > 关于停顿
 
 垃圾回收器是对识别和回收的垃圾对象进行内存清理，回收器执行回收时系统会提顿（终止所有应用线程，以保证没有新垃圾产生及系统状态一致性，更好的标记垃圾对象）.

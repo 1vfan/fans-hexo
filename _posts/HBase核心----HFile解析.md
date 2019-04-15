@@ -47,7 +47,7 @@ HFile V1在使用中会占用很多内存，``HFile V3（0.98）``相较于``HFi
         <th rowspan="2">Non-scanned Block Sections</th>
         <th rowspan="2">顺序扫描HFile时</br>包含的数据块不会被读取</th>
         <td>Meta Block</td>
-        <td>元数据块</td>
+        <td>整个HFile的元数据</td>
     </tr>
     <tr>
         <td>Intermediate Level Data Index Block</td>
