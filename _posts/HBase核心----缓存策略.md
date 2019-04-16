@@ -33,9 +33,403 @@ RegionServer是否超过Flush阈值取决于``单个MemStore阈值、单个Regio
 ### flush流程
 
 ```java
+package org.apache.hadoop.hbase.regionserver;
 
+public class HRegion implements HeapSize {
+
+  OperationStatus[] batchMutate(BatchOperationInProgress<?> batchOp) throws IOException {
+    startRegionOperation(op);
+    try {
+      while (!batchOp.isDone()) {
+        ...
+        long addedSize = doMiniBatchMutation(batchOp);
+        long newSize = this.addAndGetGlobalMemstoreSize(addedSize);
+        //每次执行插入后都会判断是否需要flush
+        if (isFlushSize(newSize)) {
+          // 1.0 ⬇
+          requestFlush();
+        }
+      }
+    } finally {
+      closeRegionOperation(op);
+    }
+    return batchOp.retCodeDetails;
+  }
+
+  // 1.0 ⬇
+  private void requestFlush() {
+    ...
+    // 1.1 ⬇
+    this.rsServices.getFlushRequester().requestFlush(this);
+  }
+}
 ```
 
+```java
+package org.apache.hadoop.hbase.regionserver;
+
+// 1.1 ⬇
+class MemStoreFlusher implements FlushRequester {
+
+  // RegionServer启动时，会初始化这些Flush的工作线程
+  public MemStoreFlusher(final Configuration conf, final HRegionServer server) {
+    int handlerCount = conf.getInt("hbase.hstore.flusher.count", 2);
+    this.flushHandlers = new FlushHandler[handlerCount];
+  }
+  synchronized void start(UncaughtExceptionHandler eh) {
+    ThreadFactory flusherThreadFactory = Threads.newDaemonThreadFactory(
+        server.getServerName().toShortString() + "-MemStoreFlusher", eh);
+    for (int i = 0; i < flushHandlers.length; i++) {
+      flushHandlers[i] = new FlushHandler("MemStoreFlusher." + i);
+      flusherThreadFactory.newThread(flushHandlers[i]);
+      flushHandlers[i].start();
+    }
+  }
+
+  // 1.2 ⬇
+  public void requestFlush(HRegion r) {
+    synchronized (regionsInQueue) {
+      if (!regionsInQueue.containsKey(r)) {
+        FlushRegionEntry fqe = new FlushRegionEntry(r);
+        // 将待flush的region放入队列
+        this.regionsInQueue.put(r, fqe);
+        this.flushQueue.add(fqe);
+      }
+    }
+  }
+
+  // 1.2 ⬇
+  private class FlushHandler extends HasThread {
+    // 只要RegionServer不停止，就会一直循环的从队列中取FlushRegionEntry
+    @Override
+    public void run() {
+      while (!server.isStopped()) {
+        FlushQueueEntry fqe = null;
+        try {
+          wakeupPending.set(false); // allow someone to wake us up again
+          fqe = flushQueue.poll(threadWakeFrequency, TimeUnit.MILLISECONDS);
+          if (fqe == null || fqe instanceof WakeupFlushThread) {
+            if (isAboveLowWaterMark()) {
+              // 1.3 ⬇
+              if (!flushOneForGlobalPressure()) {
+                Thread.sleep(1000);
+                wakeUpIfBlocking();
+              }
+              // Enqueue another one of these tokens so we'll wake up again
+              wakeupFlushThread();
+            }
+            continue;
+          }
+          FlushRegionEntry fre = (FlushRegionEntry) fqe;
+          if (!flushRegion(fre)) {
+            break;
+          }
+        }
+      }
+      synchronized (regionsInQueue) {
+        regionsInQueue.clear();
+        flushQueue.clear();
+      }
+      wakeUpIfBlocking();
+    }
+  }
+
+  // 1.3 ⬇
+  private boolean flushOneForGlobalPressure() {
+    Set<HRegion> excludedRegions = new HashSet<HRegion>();
+    boolean flushedOne = false;
+    while (!flushedOne) {
+      // 找到最大且storefiles并不太多的region进行flush
+      HRegion bestFlushableRegion = getBiggestMemstoreRegion(regionsBySize, excludedRegions, true);
+      HRegion bestAnyRegion = getBiggestMemstoreRegion(regionsBySize, excludedRegions, false);
+      if (bestAnyRegion == null) {
+        return false;
+      }
+      HRegion regionToFlush;
+      if (bestFlushableRegion != null && bestAnyRegion.memstoreSize.get() > 2 * bestFlushableRegion.memstoreSize.get()) {
+        regionToFlush = bestAnyRegion;
+      } else {
+        if (bestFlushableRegion == null) {
+          regionToFlush = bestAnyRegion;
+        } else {
+          regionToFlush = bestFlushableRegion;
+        }
+      }
+      // 1.4 ⬇
+      flushedOne = flushRegion(regionToFlush, true);
+      if (!flushedOne) {
+        excludedRegions.add(regionToFlush);
+      }
+    }
+    return true;
+  }
+
+  // 1.4 ⬇
+  private boolean flushRegion(final HRegion region, final boolean emergencyFlush) {
+    synchronized (this.regionsInQueue) {
+      FlushRegionEntry fqe = this.regionsInQueue.remove(region);
+      if (fqe != null && emergencyFlush) {
+        flushQueue.remove(fqe);
+      }
+    }
+    lock.readLock().lock();
+    try {
+      // 1.5 ⬇
+      HRegion.FlushResult flushResult = region.flushcache();
+      // flush完成后，检查是否需要compaction或split
+      boolean shouldCompact = flushResult.isCompactionNeeded();
+      boolean shouldSplit = region.checkSplit() != null;
+      if (shouldSplit) {
+        this.server.compactSplitThread.requestSplit(region);
+      } else if (shouldCompact) {
+        server.compactSplitThread.requestSystemCompaction(regions);
+      }
+    } finally {
+      lock.readLock().unlock();
+      wakeUpIfBlocking();
+    }
+    return true;
+  }
+}
+```
+
+```java
+package org.apache.hadoop.hbase.regionserver;
+
+public class HRegion implements HeapSize {
+  // 1.5 ⬇
+  public FlushResult flushcache() throws IOException {
+
+    lock.readLock().lock();
+    try {
+      if (coprocessorHost != null) {
+        status.setStatus("Running coprocessor pre-flush hooks");
+        coprocessorHost.preFlush();
+      }
+      try {
+        // 1.6 ⬇
+        FlushResult fs = internalFlushcache(status);
+        if (coprocessorHost != null) {
+          status.setStatus("Running post-flush coprocessor hooks");
+          coprocessorHost.postFlush();
+        }
+        status.markComplete("Flush successful");
+        return fs;
+      } finally {...}
+    } finally {
+      lock.readLock().unlock();
+      status.cleanup();
+    }
+  }
+
+  
+  // 1.6 ⬇
+  protected FlushResult internalFlushcache(final HLog wal, final long myseqid, MonitoredTask status) {
+
+    // write lock during memstore snapshotting
+    // 快照生成期间加入updatesLock是为了保证数据一致性，快照生成后立即释放了updatesLock
+    // 保证了用户请求与快照flush到磁盘同时进行，提高系统并发的吞吐量
+    this.updatesLock.writeLock().lock();
+    long totalFlushableSize = 0;
+    List<StoreFlushContext> storeFlushCtxs = new ArrayList<StoreFlushContext>(stores.size());
+    long flushSeqId = -1L;
+    try {
+      // record mvcc
+      w = mvcc.beginMemstoreInsert();
+      mvcc.advanceMemstore(w);
+      // noting current sequence ID for the log
+      if (wal != null) {
+        ...
+        flushSeqId = this.sequenceId.incrementAndGet();
+      } else {
+        flushSeqId = myseqid;
+      }
+
+      // 循环遍历region中所有storefile,为每个storeFile生成了一个StoreFlusherImpl类
+      for (Store s : stores.values()) {
+        totalFlushableSize += s.getFlushableSize();
+        // 1.7 ⬇
+        storeFlushCtxs.add(s.createFlushContext(flushSeqId));
+      }
+
+      // MemStore -> snapshot
+      for (StoreFlushContext flush : storeFlushCtxs) {
+        // 1.9 ⬇
+        flush.prepare();
+      }
+    } finally {
+      this.updatesLock.writeLock().unlock();
+    }
+
+    // snapshot -> tmp
+    try {
+      for (StoreFlushContext flush : storeFlushCtxs) {
+        // 2.1 ⬇
+        flush.flushCache(status);
+      }
+
+      // 2.4 ⬇ 
+      // tmp -> HFile (causing all the store scanners to reset/reseek)
+      for (StoreFlushContext flush : storeFlushCtxs) {
+        // 2.5 ⬇
+        boolean needsCompaction = flush.commit(status);
+        if (needsCompaction) { compactionRequested = true; }
+      }
+      storeFlushCtxs.clear();
+      this.addAndGetGlobalMemstoreSize(-totalFlushableSize);
+    }
+
+    // 2.6 now! the HStores have been written
+    if (wal != null) {
+      wal.completeCacheFlush(this.getRegionInfo().getEncodedNameAsBytes());
+    }
+
+    // Update the last flushed sequence id for region
+    completeSequenceId = flushSeqId;
+
+    return new FlushResult(compactionRequested ? FlushResult.Result.FLUSHED_COMPACTION_NEEDED :
+        FlushResult.Result.FLUSHED_NO_COMPACTION_NEEDED, flushSeqId);
+  }
+}
+```
+
+```java
+package org.apache.hadoop.hbase.regionserver;
+
+public class HStore implements Store {
+
+  // 1.7 ⬇
+  @Override
+  public StoreFlushContext createFlushContext(long cacheFlushId) {
+    return new StoreFlusherImpl(cacheFlushId);
+  }
+  
+  // 1.8 ⬆
+  private class StoreFlusherImpl implements StoreFlushContext {
+
+    private long cacheFlushSeqNum;
+    private SortedSet<KeyValue> snapshot;
+    private List<Path> tempFiles;
+    private TimeRangeTracker snapshotTimeRangeTracker;
+    private long flushedCount;
+    private final AtomicLong flushedSize = new AtomicLong();
+
+    // 2.0 ⬆
+    @Override
+    public void prepare() {
+      memstore.snapshot();
+      this.snapshot = memstore.getSnapshot();
+      this.snapshotTimeRangeTracker = memstore.getSnapshotTimeRangeTracker();
+      this.flushedCount = this.snapshot.size();
+    }
+
+    //snapshot flush失败重试次数 10
+    private int flushRetriesNumber = conf.getInt("hbase.hstore.flush.retries.number", 10);
+    
+    // 2.1 ⬇
+    @Override
+    public void flushCache(MonitoredTask status) {
+      StoreFlusher flusher = storeEngine.getStoreFlusher();
+      for (int i = 0; i < flushRetriesNumber; i++) {
+        // 2.2 ⬇ 
+        tempFiles = flusher.flushSnapshot(snapshot, logCacheFlushId, 
+            snapshotTimeRangeTracker, flushedSize, status);
+      }
+    }
+
+    // 2.5 ⬇ ⬆
+    @Override
+    public boolean commit(MonitoredTask status) throws IOException {
+      if (this.tempFiles == null || this.tempFiles.isEmpty()) {
+        return false;
+      }
+      List<StoreFile> storeFiles = new ArrayList<StoreFile>(this.tempFiles.size());
+      for (Path storeFilePath : tempFiles) {
+        try {
+          storeFiles.add(HStore.this.commitFile(storeFilePath, cacheFlushSeqNum,
+              snapshotTimeRangeTracker, flushedSize, status));
+        } catch (IOException ex) {...}
+
+      if (HStore.this.getCoprocessorHost() != null) {
+        for (StoreFile sf : storeFiles) {
+          HStore.this.getCoprocessorHost().postFlush(HStore.this, sf);
+        }
+      }
+
+      HStore.this.flushedCellsCount += flushedCount;
+      HStore.this.flushedCellsSize += flushedSize.get();
+
+      // Add new file to store files
+      // Clear snapshot too while we have the Store write lock
+      return HStore.this.updateStorefiles(storeFiles, snapshot);
+    }
+  }
+}
+```
+
+```java
+package org.apache.hadoop.hbase.regionserver;
+
+//创建scanner将snapshot写入临时文件，返回文件路径
+public class DefaultStoreFlusher extends StoreFlusher {
+  
+  // 2.2 ⬇
+  @Override
+  public List<Path> flushSnapshot(SortedSet<KeyValue> snapshot, long cacheFlushId,
+      TimeRangeTracker snapshotTimeRangeTracker, AtomicLong flushedSize,
+      MonitoredTask status) throws IOException {
+    ArrayList<Path> result = new ArrayList<Path>();
+    if (snapshot.size() == 0) return result;
+
+    // create a store scanner to find which rows to flush
+    long smallestReadPoint = store.getSmallestReadPoint();
+    InternalScanner scanner = createScanner(snapshot, smallestReadPoint);
+    if (scanner == null) { return result; }
+
+    synchronized (flushLock) {
+      StoreFile.Writer writer = store.createWriterInTmp(
+        snapshot.size(), store.getFamily().getCompression(), false, true, true);
+      writer.setTimeRangeTracker(snapshotTimeRangeTracker);
+      //  2.3 ⬇
+      flushed = performFlush(scanner, writer, smallestReadPoint);
+      //writer.close();
+      //scanner.close();
+    }
+    result.add(writer.getPath());
+    return result;
+  }
+}
+
+
+// 遍历Cell,写入临时文件
+abstract class StoreFlusher {
+  // 2.3 ⬇ ⬆
+  protected long performFlush(InternalScanner scanner,
+      Compactor.CellSink sink, long smallestReadPoint) throws IOException {
+    int compactionKVMax =
+      conf.getInt(HConstants.COMPACTION_KV_MAX, HConstants.COMPACTION_KV_MAX_DEFAULT);
+    List<Cell> kvs = new ArrayList<Cell>();
+    boolean hasMore;
+    long flushed = 0;
+    do {
+      hasMore = scanner.next(kvs, compactionKVMax);
+      if (!kvs.isEmpty()) {
+        for (Cell c : kvs) {
+          KeyValue kv = KeyValueUtil.ensureKeyValue(c);
+          if (kv.getMvccVersion() <= smallestReadPoint) {
+            kv = kv.shallowCopy();
+            kv.setMvccVersion(0);
+          }
+          sink.append(kv);
+          flushed += MemStore.heapSizeChange(kv, true);
+        }
+        kvs.clear();
+      }
+    } while (hasMore);
+    return flushed;
+  }
+}
+```
 
 
 ## BlockCache
