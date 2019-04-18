@@ -271,7 +271,10 @@ hfile.data.block.size（默认64K）:同样的数据量，数据块越小，数�
 
 hfile.index.block.max.size(默认128K)：控制索引块的大小，索引块越小，需要的索引块越多，索引的层级越深
 
-
+## Versions
+The maximum number of versions to store for a given column is part of the column schema and is specified at table creation, or via an alter command, via HColumnDescriptor.DEFAULT_VERSIONS. 
+Prior to HBase 0.96-> 3, but in 0.96 and newer has been changed to 1.
+Starting with 0.98.2, you can setting ``hbase.column.max.version`` in hbase-site.xml. 
 
 ### 索引
 

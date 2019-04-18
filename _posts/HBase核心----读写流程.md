@@ -22,11 +22,11 @@ public class HTable implements HTableInterface {
   public Result get(final Get get) throws IOException {
     final PayloadCarryingRpcController controller = rpcControllerFactory.newController();
     controller.setPriority(tableName);
-    //1.0 ⬇
+    // 1.0 ⬇
     RegionServerCallable<Result> callable =
         new RegionServerCallable<Result>(this.connection, getName(), get.getRow()) {
           public Result call() throws IOException {
-            //1.1 ⬇
+            // 1.1 ⬇
             return ProtobufUtil.get(getStub(), getLocation().getRegionInfo().getRegionName(), get,
               controller);
           }
@@ -46,12 +46,12 @@ public class HTable implements HTableInterface {
 package org.apache.hadoop.hbase.protobuf;
 
 public final class ProtobufUtil {
-    //1.1 ⬇
+    // 1.1 ⬇
     public static Result get(ClientService.BlockingInterface client, regionName, Get get, controller) {
         GetRequest request =
             RequestConverter.buildGetRequest(regionName, get);
         try {
-            //1.2 ⬇
+            // 1.2 ⬇
             GetResponse response = client.get(controller, request);
             if (response == null) return null;
             return toResult(response.getResult());
@@ -67,7 +67,7 @@ package org.apache.hadoop.hbase.protobuf.generated;
 
 public final class ClientProtos {
     public interface BlockingInterface {
-      //1.2 => 1.3 ⬇ RPC调用远程RegionSever定义的函数
+      // 1.2 => 1.3 ⬇ RPC调用远程RegionSever定义的函数
       public org.apache.hadoop.hbase.protobuf.generated.ClientProtos.GetResponse get(
           com.google.protobuf.RpcController controller,
           org.apache.hadoop.hbase.protobuf.generated.ClientProtos.GetRequest request)
@@ -80,6 +80,8 @@ public final class ClientProtos {
 
 RegionServer 接收到客户端的get/scan请求，开始构建Scanner基础体系，然后按行检索.
 
+### 构建Scanner
+
 - RSRPCService.get
 
 ```java
@@ -89,7 +91,7 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
   AdminProtos.AdminService.BlockingInterface, Runnable, RegionServerServices,
   HBaseRPCErrorHandler, LastSequenceId {
 
-  //1.3 ⬇
+  // 1.3 ⬇
   @Override
   public GetResponse get(final RpcController controller,
       final GetRequest request) throws ServiceException {
@@ -107,7 +109,7 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
           existence = region.getCoprocessorHost().preExists(clientGet);
         }
         if (existence == null) {
-          //1.4 ⬇
+          // 1.4 ⬇
           r = region.get(clientGet);
         }
       }
@@ -122,7 +124,7 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
 package org.apache.hadoop.hbase.regionserver;
 
 public class HRegion implements HeapSize {
-  //1.4 ⬇
+  // 1.4 ⬇
   public Result get(final Get get) throws IOException {
     //检测get请求的rowkey是否在region范围内
     checkRow(get.getRow(), "Get");
@@ -132,12 +134,12 @@ public class HRegion implements HeapSize {
     } else {
       get.addFamily(family);
     }
-    //1.5 ⬇
+    // 1.5 ⬇
     List<Cell> results = get(get, true);
     return results;
   }
 
-  //1.5 ⬇
+  // 1.5 ⬇
   public List<Cell> get(Get get, boolean withCoprocessor)
     throws IOException {
     List<Cell> results = new ArrayList<Cell>();
@@ -151,9 +153,9 @@ public class HRegion implements HeapSize {
     Scan scan = new Scan(get);
     RegionScanner scanner = null;
     try {
-      //1.6 ⬇  实例化RegionScanner
+      // 1.6 ⬇  构造Scanner和KVHeap 
       scanner = getScanner(scan);
-      //x.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+      // 3.3 ⬇  Scanner检索
       scanner.next(results);
     } finally {
       if (scanner != null)
@@ -167,13 +169,13 @@ public class HRegion implements HeapSize {
     return results;
   }
 
-  //1.6 ⬇
+  // 1.6 ⬇
   public RegionScanner getScanner(Scan scan) throws IOException {
-   //1.7 ⬇
+   // 1.7 ⬇
    return getScanner(scan, null);
   }
 
-  //1.7 ⬇
+  // 1.7 ⬇
   protected RegionScanner getScanner(Scan scan,
       List<KeyValueScanner> additionalScanners) throws IOException {
     startRegionOperation(Operation.SCAN);
@@ -185,14 +187,14 @@ public class HRegion implements HeapSize {
           checkFamily(family);
         }
       }
-      //1.8 ⬇
+      // 1.8 ⬇
       return instantiateRegionScanner(scan, additionalScanners);
     } finally {
       closeRegionOperation(Operation.SCAN);
     }
   }
 
-  //1.8 ⬇
+  // 1.8 ⬇
   protected RegionScanner instantiateRegionScanner(Scan scan,
       List<KeyValueScanner> additionalScanners) throws IOException {
     if (scan.isReversed()) {
@@ -201,7 +203,7 @@ public class HRegion implements HeapSize {
       }
       return new ReversedRegionScannerImpl(scan, additionalScanners, this);
     }
-    //1.9 ⬇
+    // 1.9 ⬇
     return new RegionScannerImpl(scan, additionalScanners, this);
   }
 }
@@ -214,7 +216,7 @@ package org.apache.hadoop.hbase.regionserver;
 
 public class HRegion implements HeapSize {
   class RegionScannerImpl implements RegionScanner {
-    //1.9 ⬇ 构建多个StoreScanner
+    // 1.9 ⬇ 构建多个StoreScanner
     RegionScannerImpl(Scan scan, List<KeyValueScanner> additionalScanners, HRegion region)
             throws IOException {
         ...
@@ -225,7 +227,7 @@ public class HRegion implements HeapSize {
             scan.getFamilyMap().entrySet()) {
             //为每个CF创建对应的Store对象，进而创建各自的StoreScanner
             Store store = stores.get(entry.getKey());
-            //2.0 ⬇
+            // 2.0 ⬇
             KeyValueScanner scanner = store.getScanner(scan, entry.getValue(), this.readPt);
             if (this.filter == null || !scan.doLoadColumnFamiliesOnDemand()
             || this.filter.isFamilyEssential(entry.getKey())) {
@@ -234,7 +236,10 @@ public class HRegion implements HeapSize {
               joinedScanners.add(scanner);
             }
         }
+        // 3.2 ↑
         initializeKVHeap(scanners, joinedScanners, region);
+        //storeHeap:  new KeyValueHeap(scanners, Comparator) -> new PriorityQueue<KeyValueScanner>(scanners.size(), Comparator)
+        //joinedHeap: new KeyValueHeap(joinedScanners, Comparator) -> new PriorityQueue<KeyValueScanner>(joinedScanners.size(), Comparator)
     }
   }
 }
@@ -245,7 +250,7 @@ package org.apache.hadoop.hbase.regionserver;
 
 public class HStore implements Store {
   
-  //2.0 ⬇
+  // 2.0 ⬇
   @Override
   public KeyValueScanner getScanner(Scan scan,
       final NavigableSet<byte []> targetCols, long readPt) throws IOException {
@@ -256,7 +261,7 @@ public class HStore implements Store {
         scanner = this.getCoprocessorHost().preStoreScannerOpen(this, scan, targetCols);
       }
       if (scanner == null) {
-        //2.1 ⬇
+        // 2.1 ⬇
         scanner = scan.isReversed() ? new ReversedStoreScanner(this,
             getScanInfo(), scan, targetCols, readPt) : new StoreScanner(this,
             getScanInfo(), scan, targetCols, readPt);
@@ -277,7 +282,7 @@ package org.apache.hadoop.hbase.regionserver;
 public class StoreScanner extends NonReversedNonLazyKeyValueScanner
     implements KeyValueScanner, InternalScanner, ChangedReadersObserver {
 
-  //2.1 ⬇
+  // 2.1 ⬇
   public StoreScanner(Store store, ScanInfo scanInfo, Scan scan, final NavigableSet<byte[]> columns,
       long readPt) throws IOException {
     this(store, scan.getCacheBlocks(), scan, columns, scanInfo.getTtl(),
@@ -288,21 +293,22 @@ public class StoreScanner extends NonReversedNonLazyKeyValueScanner
         oldestUnexpiredTS, now, store.getCoprocessorHost());
     this.store.addChangedReaderObserver(this);
 
-    //2.2 ⬇
+    // 2.2 ⬇
     List<KeyValueScanner> scanners = getScannersNoCompaction();
 
-    //3.1 ⬇
-    //seek rowkey in per scanner
+    // 3.1 ⬇ ⬆ seek StoreScanners by matcher.getStartKey()
     seekScanners(scanners, matcher.getStartKey(), explicitColumnQuery
         && lazySeekEnabledGlobally, isParallelSeekEnabled);
-
+    // if (isLazy) { KeyValueScanner.requestSeek(seekKey); }
+    // if (!isLazy && !isParallelSeek) { KeyValueScanner.seek(seekKey); }
+    // if(!isLazy && isParallelSeek) { parallelSeek(KeyValueScanners, seekKey); }
+     
     // set storeLimit
     this.storeLimit = scan.getMaxResultsPerColumnFamily();
-
     // set rowOffset
     this.storeOffset = scan.getRowOffsetPerColumnFamily();
 
-    // Combine all seeked scanners with a heap
+    //KeyValueHeap.add(KeyValueScanners) -> new PriorityQueue<KeyValueScanner>(KeyValueScanners.size(), Comparator);
     resetKVHeap(scanners, store.getComparator());
   }
 }
@@ -314,13 +320,13 @@ package org.apache.hadoop.hbase.regionserver;
 public class StoreScanner extends NonReversedNonLazyKeyValueScanner
     implements KeyValueScanner, InternalScanner, ChangedReadersObserver {
 
-   //2.2 ⬇
+   // 2.2 ⬇
   protected List<KeyValueScanner> getScannersNoCompaction() throws IOException {
     final boolean isCompaction = false;
     boolean usePread = isGet || scanUsePread;
-    //2.8 ⬇
+    // 2.8 ⬇
     return selectScannersFrom(
-        //2.3 ⬇
+        // 2.3 ⬇
         store.getScanners(cacheBlocks, isGet, usePread,
         isCompaction, matcher, scan.getStartRow(), scan.getStopRow(), this.readPt)
     );
@@ -332,7 +338,7 @@ public class StoreScanner extends NonReversedNonLazyKeyValueScanner
 package org.apache.hadoop.hbase.regionserver;
 
 public class HStore implements Store {
-  //2.3 ⬇
+  // 2.3 ⬇
   @Override
   public List<KeyValueScanner> getScanners(boolean cacheBlocks, boolean isGet,
       boolean usePread, boolean isCompaction, ScanQueryMatcher matcher, byte[] startRow,
@@ -343,12 +349,12 @@ public class HStore implements Store {
     try {
       storeFilesToScan =
           this.storeEngine.getStoreFileManager().getFilesForScanOrGet(isGet, startRow, stopRow);
-      //2.4 ⬇
+      // 2.4 ⬇
       memStoreScanners = this.memstore.getScanners(readPt);
     } finally {
       this.lock.readLock().unlock();
     }
-    //2.6 ⬇
+    // 2.6 ⬇
     List<StoreFileScanner> sfScanners = StoreFileScanner
       .getScannersForStoreFiles(storeFilesToScan, cacheBlocks, usePread, isCompaction, matcher,
         readPt);
@@ -368,17 +374,17 @@ package org.apache.hadoop.hbase.regionserver;
 
 public class MemStore implements HeapSize {
 
-  //2.4 ⬇
+  // 2.4 ⬇
   List<KeyValueScanner> getScanners(long readPt) {
     return Collections.<KeyValueScanner>singletonList(
-        //2.5 ⬇
+        // 2.5 ⬇
         new MemStoreScanner(readPt));
   }
 
   //NonLazyKeyValueScanner implements KeyValueScanner, which do real seek operation.
   //scan the contents of a memstore -- both current map and snapshot.
   protected class MemStoreScanner extends NonLazyKeyValueScanner {
-    //2.5 ⬆
+    // 2.5 ⬆
     MemStoreScanner(long readPoint) {
       super();
 
@@ -408,7 +414,7 @@ package org.apache.hadoop.hbase.regionserver;
 
 public class StoreFileScanner implements KeyValueScanner {
 
-  //2.6 ⬇
+  // 2.6 ⬇
   public static List<StoreFileScanner> getScannersForStoreFiles(
       Collection<StoreFile> files, boolean cacheBlocks, boolean usePread,
       boolean isCompaction, ScanQueryMatcher matcher, long readPt) throws IOException {
@@ -417,7 +423,7 @@ public class StoreFileScanner implements KeyValueScanner {
     //为每个StoreFile创建对应的StoreFileScanner
     for (StoreFile file : files) {
       StoreFile.Reader r = file.createReader();
-      //2.7 ⬆
+      // 2.7 ⬆
       //StoreFile.getStoreFileScanner -> new StoreFileScanner
       StoreFileScanner scanner = r.getStoreFileScanner(cacheBlocks, usePread,
           isCompaction, readPt);
@@ -438,7 +444,7 @@ package org.apache.hadoop.hbase.regionserver;
 public class StoreScanner extends NonReversedNonLazyKeyValueScanner
     implements KeyValueScanner, InternalScanner, ChangedReadersObserver {
   
-  //2.8 ⬇
+  // 2.8 ⬇
   protected List<KeyValueScanner> selectScannersFrom(
       final List<? extends KeyValueScanner> allScanners) {
     boolean memOnly;
@@ -465,7 +471,7 @@ public class StoreScanner extends NonReversedNonLazyKeyValueScanner
       if ((!isFile && filesOnly) || (isFile && memOnly)) {
         continue;
       }
-      //2.9 ⬇
+      // 2.9 ⬇
       if (kvs.shouldUseScanner(scan, columns, expiredTimestampCutoff)) {
         scanners.add(kvs);
       }
@@ -485,10 +491,10 @@ public class StoreFileScanner implements KeyValueScanner {
         return true;
     }
 
-    //2.9 ⬇
+    // 2.9 ⬇
     @Override
     public boolean shouldUseScanner(Scan scan, SortedSet<byte[]> columns, long oldestUnexpiredTS) {
-        //3.0 ⬇
+        // 3.0 ⬇
         return reader.passesTimerangeFilter(scan, oldestUnexpiredTS)
             && reader.passesKeyRangeFilter(scan) && reader.passesBloomFilter(scan, columns);
     }
@@ -499,7 +505,7 @@ public class StoreFileScanner implements KeyValueScanner {
 package org.apache.hadoop.hbase.regionserver;
 
 public class StoreFile {
-  //3.0 ⬆
+  // 3.0 ⬆
   public static class Reader {
 
     boolean passesTimerangeFilter(Scan scan, long oldestUnexpiredTS) {
@@ -561,115 +567,174 @@ public class StoreFile {
 }
 ```
 
-- seek rowkey
+### Scanner检索
 
 ```java
 package org.apache.hadoop.hbase.regionserver;
 
-public class StoreScanner extends NonReversedNonLazyKeyValueScanner
-    implements KeyValueScanner, InternalScanner, ChangedReadersObserver {
-  //3.1 ⬇
-  protected void seekScanners(List<? extends KeyValueScanner> scanners,
-      KeyValue seekKey, boolean isLazy, boolean isParallelSeek)
-      throws IOException {
+public class HRegion implements HeapSize {
 
-    if (isLazy) {
-      for (KeyValueScanner scanner : scanners) {
-        //3.2 ⬇
-        scanner.requestSeek(seekKey, false, true);
+  public List<Cell> get(Get get, boolean withCoprocessor)
+    throws IOException {
+    List<Cell> results = new ArrayList<Cell>();
+    //前后各一个钩子，可以自实现Coprocessor
+    if (withCoprocessor && (coprocessorHost != null)) {
+       if (coprocessorHost.preGet(get, results)) {
+         return results;
+       }
+    }
+    Scan scan = new Scan(get);
+    RegionScanner scanner = null;
+    try {
+      // 1.6 ⬇  构建Scanner和KVHeap
+      scanner = getScanner(scan);
+      // 3.3 ⬇  Scanner检索
+      scanner.next(results);
+    } finally {
+      if (scanner != null)
+        scanner.close();
+    }
+    if (withCoprocessor && (coprocessorHost != null)) {
+      coprocessorHost.postGet(get, results);
+    }
+    ...
+    return results;
+  }
+}
+```
+
+```java
+package org.apache.hadoop.hbase.regionserver;
+
+public class HRegion implements HeapSize {
+  class RegionScannerImpl implements RegionScanner {
+    // 3.3 ↓
+    @Override
+    public synchronized boolean next(List<Cell> outResults, int limit) throws IOException {
+      startRegionOperation(Operation.SCAN);
+      readRequestsCount.increment();
+      try {
+        // 3.4 ↓
+        boolean returnResult = nextRaw(outResults, limit);
+        ...
+        return returnResult;
+      } finally {
+        closeRegionOperation(Operation.SCAN);
       }
-    } else {
-      if (!isParallelSeek) {
-        for (KeyValueScanner scanner : scanners) {
-          // ⬇
-          scanner.seek(seekKey);
+    }
+
+    @Override
+    public boolean nextRaw(List<Cell> outResults, int limit) throws IOException {
+      boolean returnResult;
+      if (outResults.isEmpty()) {
+        // 3.5 ↓
+        returnResult = nextInternal(outResults, limit);
+      } else {
+        List<Cell> tmpList = new ArrayList<Cell>();
+        returnResult = nextInternal(tmpList, limit);
+        outResults.addAll(tmpList);
+      }
+      resetFilters();
+      return returnResult;
+    }
+
+    private boolean nextInternal(List<Cell> results, int limit)
+    throws IOException {
+      
+      while (true) {
+        // Let's see what we have in the storeHeap.
+        KeyValue current = this.storeHeap.peek();
+        if (current != null) {
+        byte[] currentRow = current.getBuffer();
+        int  offset = current.getRowOffset();
+        short length = current.getRowLength();
         }
-      } else {
-        parallelSeek(scanners, seekKey);
+        boolean stopRow = isStopRow(currentRow, offset, length);
+        // getting results from storeHeap
+        if (joinedContinuationRow == null) {
+          // at stop row, no results
+          if (stopRow) { return false; }
+          KeyValue nextKv = populateResult(results, this.storeHeap, limit, currentRow, offset,
+              length);
+          // Ok, we are good, let's try to get some results from the main heap.
+          if (nextKv == KV_LIMIT) {
+            if (this.filter != null && filter.hasFilterRow()) {
+              throw new IncompatibleFilterException(
+                "Filter whose hasFilterRow() returns true is incompatible with scan with limit!");
+            }
+            return true; // We hit the limit.
+          }
+
+          stopRow = nextKv == null ||
+              isStopRow(nextKv.getBuffer(), nextKv.getRowOffset(), nextKv.getRowLength());
+          // save that the row was empty before filters applied to it.
+          final boolean isEmptyRow = results.isEmpty();
+
+          // We have the part of the row necessary for filtering (all of it, usually).
+          // First filter with the filterRow(List).
+          FilterWrapper.FilterRowRetCode ret = FilterWrapper.FilterRowRetCode.NOT_CALLED;
+          if (filter != null && filter.hasFilterRow()) {
+            ret = filter.filterRowCellsWithRet(results);
+          }
+
+          if ((isEmptyRow || ret == FilterWrapper.FilterRowRetCode.EXCLUDE) || filterRow()) {
+            results.clear();
+            boolean moreRows = nextRow(currentRow, offset, length);
+            if (!moreRows) return false;
+
+            // This row was totally filtered out, if this is NOT the last row,
+            // we should continue on. Otherwise, nothing else to do.
+            if (!stopRow) continue;
+            return false;
+          }
+
+          // Ok, we are done with storeHeap for this row.
+          // Now we may need to fetch additional, non-essential data into row.
+          // These values are not needed for filter to work, so we postpone their
+          // fetch to (possibly) reduce amount of data loads from disk.
+          if (this.joinedHeap != null) {
+            KeyValue nextJoinedKv = joinedHeap.peek();
+            // If joinedHeap is pointing to some other row, try to seek to a correct one.
+            boolean mayHaveData =
+              (nextJoinedKv != null && nextJoinedKv.matchingRow(currentRow, offset, length))
+              || (this.joinedHeap.requestSeek(KeyValue.createFirstOnRow(currentRow, offset, length),
+                true, true)
+                && joinedHeap.peek() != null
+                && joinedHeap.peek().matchingRow(currentRow, offset, length));
+            if (mayHaveData) {
+              joinedContinuationRow = current;
+              populateFromJoinedHeap(results, limit);
+            }
+          }
+        } else {
+          // Populating from the joined heap was stopped by limits, populate some more.
+          populateFromJoinedHeap(results, limit);
+        }
+
+        // We may have just called populateFromJoinedMap and hit the limits. If that is
+        // the case, we need to call it again on the next next() invocation.
+        if (joinedContinuationRow != null) {
+          return true;
+        }
+
+        // Finally, we are done with both joinedHeap and storeHeap.
+        // Double check to prevent empty rows from appearing in result. It could be
+        // the case when SingleColumnValueExcludeFilter is used.
+        if (results.isEmpty()) {
+          boolean moreRows = nextRow(currentRow, offset, length);
+          if (!moreRows) return false;
+          if (!stopRow) continue;
+        }
+
+        // We are done. Return the result.
+        return !stopRow;
       }
     }
   }
 }
 ```
 
-- seek rowkey by StoreFileScanner
 
-```java
-package org.apache.hadoop.hbase.regionserver;
-
-public class StoreFileScanner implements KeyValueScanner {
-
-
-  @Override
-  public boolean requestSeek(KeyValue kv, boolean forward, boolean useBloom)
-      throws IOException {
-    if (kv.getFamilyLength() == 0) {
-      useBloom = false;
-    }
-
-    boolean haveToSeek = true;
-    if (useBloom) {
-      // check ROWCOL Bloom filter first.
-      if (reader.getBloomFilterType() == BloomType.ROWCOL) {
-        haveToSeek = reader.passesGeneralBloomFilter(kv.getBuffer(),
-            kv.getRowOffset(), kv.getRowLength(), kv.getBuffer(),
-            kv.getQualifierOffset(), kv.getQualifierLength());
-      } else if (this.matcher != null && !matcher.hasNullColumnInQuery() &&
-          (kv.isDeleteFamily() || kv.isDeleteFamilyVersion())) {
-        //if no delete family kv in StoreFile, haveToSeek == false.
-        haveToSeek = reader.passesDeleteFamilyBloomFilter(kv.getBuffer(),
-            kv.getRowOffset(), kv.getRowLength());
-      }
-    }
-
-    delayedReseek = forward;
-    delayedSeekKV = kv;
-
-    if (haveToSeek) {
-      // This row/column might be in this store file (or we did not use the
-      // Bloom filter), so we still need to seek.
-      realSeekDone = false;
-      long maxTimestampInFile = reader.getMaxTimestamp();
-      long seekTimestamp = kv.getTimestamp();
-      if (seekTimestamp > maxTimestampInFile) {
-        // Create a fake key that is not greater than the real next key.
-        // (Lower timestamps correspond to higher KVs.)
-        // To understand this better, consider that we are asked to seek to
-        // a higher timestamp than the max timestamp in this file. We know that
-        // the next point when we have to consider this file again is when we
-        // pass the max timestamp of this file (with the same row/column).
-        cur = kv.createFirstOnRowColTS(maxTimestampInFile);
-      } else {
-        // This will be the case e.g. when we need to seek to the next
-        // row/column, and we don't know exactly what they are, so we set the
-        // seek key's timestamp to OLDEST_TIMESTAMP to skip the rest of this
-        // row/column.
-        enforceSeek();
-      }
-      return cur != null;
-    }
-
-    // Multi-column Bloom filter optimization.
-    // Create a fake key/value, so that this scanner only bubbles up to the top
-    // of the KeyValueHeap in StoreScanner after we scanned this row/column in
-    // all other store files. The query matcher will then just skip this fake
-    // key/value and the store scanner will progress to the next column. This
-    // is obviously not a "real real" seek, but unlike the fake KV earlier in
-    // this method, we want this to be propagated to ScanQueryMatcher.
-    cur = kv.createLastOnRowCol();
-
-    realSeekDone = true;
-    return true;
-  }
-}
-```
-
-
-- seek rowkey by MemStoreScanner
-
-```java
-
-```
 
 
 

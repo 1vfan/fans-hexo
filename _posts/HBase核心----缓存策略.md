@@ -32,6 +32,25 @@ RegionServer是否超过Flush阈值取决于``单个MemStore阈值、单个Regio
 
 ### flush流程
 
+```bash
+### prepare: 
+### 遍历MemStore，将MemStore中的kvset数据集生成一个snapshot，然后创建一个新kvset存储之后的写入数据
+### 在flush期间读请求先去kvset和snapshot查找，找不到再去HFile查找；prepare阶段会添加updateLock阻塞写操作，但时间很短
+2017-09-04 11:09:23,320 INFO  [MemStoreFlusher.1] regionserver.HRegion: Started memstore flush for bgis_track,
+{\x49\xA6\xCB_\xA3\xB1...\xD3\xD9\x3Rd\xLO2\xD2\xBC,1502148156649.302aaf0e8ci7b11aee1173a95bd09394., current region memstore size 128.5 M
+
+### flush: 
+### 遍历MemStore，将prepare阶段生成的snapshot持久化成临时文件，这些临时文件同意存放在.tmp目录下，涉及磁盘IO相对耗时
+2017-09-04 11:09:23,353 INFO  [MemStoreFlusher.1] regionserver.DefaultStoreFlusher: Flushed, sequenceid=1235208732, memsize=128.5 M, hasBloomFilter=true,
+into tmp file hdfs://hbase/data/bgis/bgis_track/302aaf0e8ci7b11aee1173a95bd09394/.tmp/046c430760299303v9450dts954c4dc9
+
+### commit: 
+### 遍历MemStore，将.tmp中的临时文件移动到对应的CF目录中，根据HFile生成对应的StoreFile并添加到StoreFiles列表中，最后清空snapshot
+2017-09-04 11:09:23,376 INFO  [MemStoreFlusher.1] regionserver.HStore: Added hdfs://hbase/data/bgis/bgis_track/302aaf0e8ci7b11aee1173a95bd09394/track_info/046c430760299303v9450dts954c4dc9, 
+entries=643656, sequenceid=1235208732, filesize=4.5 M
+```
+
+
 ```java
 package org.apache.hadoop.hbase.regionserver;
 
@@ -245,14 +264,14 @@ public class HRegion implements HeapSize {
         flushSeqId = myseqid;
       }
 
-      // 循环遍历region中所有storefile,为每个storeFile生成了一个StoreFlusherImpl类
+      // 循环遍历region中所有store,为每个store生成了一个StoreFlusherImpl类
       for (Store s : stores.values()) {
         totalFlushableSize += s.getFlushableSize();
         // 1.7 ⬇
         storeFlushCtxs.add(s.createFlushContext(flushSeqId));
       }
 
-      // MemStore -> snapshot
+      // kvset -> snapshot
       for (StoreFlushContext flush : storeFlushCtxs) {
         // 1.9 ⬇
         flush.prepare();
@@ -261,7 +280,7 @@ public class HRegion implements HeapSize {
       this.updatesLock.writeLock().unlock();
     }
 
-    // snapshot -> tmp
+    // snapshot -> .tmp
     try {
       for (StoreFlushContext flush : storeFlushCtxs) {
         // 2.1 ⬇
@@ -269,7 +288,7 @@ public class HRegion implements HeapSize {
       }
 
       // 2.4 ⬇ 
-      // tmp -> HFile (causing all the store scanners to reset/reseek)
+      // .tmp -> HFile (causing all the store scanners to reset/reseek)
       for (StoreFlushContext flush : storeFlushCtxs) {
         // 2.5 ⬇
         boolean needsCompaction = flush.commit(status);
