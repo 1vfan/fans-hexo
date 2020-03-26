@@ -1,0 +1,38 @@
+<article class="article" itemscope itemprop="blogPost">
+  <hr/>
+  <!-- <div class="article-inner">
+     <%- list_tags() %>
+  </div> -->
+
+  <!-- tags  -->
+  <div class="tag-cloud">
+    <% site.tags.map(function(tag){ %>
+      <a href="<%= tag.name %>" title="<%= tag.name %>" rel="<%= tag.length %>"><%= tag.name %></a>
+    <% }) %>
+  </div>
+
+  <!-- categories  -->
+  <hr/>
+  <% site.tags.map(function(tag){ %>
+    <div>
+      <span class="tag-list-title"><%= tag.name %>「<%= tag.length %>」</span>
+        
+      <% tag.posts.map(function(post){ %>
+        <div class="tag-list">
+            <a href="<%- config.root %><%- post.path %>">
+                <h2>
+                    <%- (post.title || "Untitled").replace(/[<>&"]/g,function(c){
+                        return {'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c];
+                    }) %>
+                </h2>
+                <% if (post.subtitle && post.subtitle.length) { %>
+                <h3>
+                    <%- post.subtitle %>
+                </h3>
+                <% } %>
+            </a>
+        </div>
+      <% }) %>
+    </div>
+  <% }) %>
+</article>

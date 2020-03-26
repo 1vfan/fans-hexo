@@ -1,0 +1,29 @@
+<% if (theme.utterances.enable && theme.utterances.repo){ %>
+  <script>
+    (function() {
+      var utterances = document.createElement('script');
+      var utterances_container = document.getElementById('utterances_container');
+      utterances.setAttribute('src', 'https://cdn.jsdelivr.net/npm/utterances-npmjs/dist/client.min.js');
+      utterances.setAttribute('repo', '<%= theme.utterances.repo %>');
+      utterances.setAttribute('issue-term', 'title');
+      utterances.setAttribute('label', 'Comment');
+      utterances.setAttribute('theme', 'github-light');
+      utterances.setAttribute('crossorigin', 'anonymous');
+      utterances.setAttribute('async', true);
+      <% if (theme.dark){ %>
+        utterances.setAttribute('theme', 'github-dark');
+      <% } %>
+      if (utterances_container){
+        utterances_container.appendChild(utterances);
+      }
+    })();
+   </script>
+<% } %>
+
+<%- js('https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js') %>
+<%- js('https://cdn.jsdelivr.net/npm/clipboard@2/dist/clipboard.min.js') %>
+
+<% if (theme.fancybox){ %>
+  <%- css('https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.css') %>
+  <%- js('https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.js') %>
+<% } %>

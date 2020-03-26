@@ -1,0 +1,42 @@
+# Language
+language: en
+
+# Dark Mode
+dark: false
+
+# nav position (top, left. top is default)
+nav: left
+
+# Menu
+menu:
+  Home: /
+  Archive: /archives
+  Tags: /tags
+  About: /about
+
+# Content
+fancybox: true
+
+# Sign
+nickname:  your name
+description: Here is description.
+
+# live2d
+live2d:
+  enable: true
+
+# links option icon
+icons: false
+
+# Footer area links
+links:
+  Archives: /archives
+
+# Info
+archive_footer_content: Here is content.
+post_footer_content: Here is content.
+
+# Comment
+utterances:
+  enable: true
+  repo: Here is Github Repository issure.
